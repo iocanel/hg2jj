@@ -1,62 +1,46 @@
-# eframe template
+# Hackers Guide to Jiu Jitsu: The Application
 
-[![dependency status](https://deps.rs/repo/github/emilk/eframe_template/status.svg)](https://deps.rs/repo/github/emilk/eframe_template)
-[![Build Status](https://github.com/emilk/eframe_template/workflows/CI/badge.svg)](https://github.com/emilk/eframe_template/actions?workflow=CI)
+A tool watching and navigating Jiu Jitsu instructionals.
 
-This is a template repo for [eframe](https://github.com/emilk/egui/tree/master/eframe), a framework for writing apps using [egui](https://github.com/emilk/egui/).
+### Features:
 
-The goal is for this to be the simplest way to get started writing a GUI app in Rust.
+- Scene detection
+- Scene title recognition (OCR)
+- Download scene info (title & timestamps) from BJJ Fanatics
+- Load / Save instructional information in org-mode format
+- Generate m3u playlist
+- Playback
+- Customization
+  - Timestamps
+  - OCR preprocessing 
 
-You can compile your app natively or for the web, and share it using Github Pages.
+### Rationale
 
-## Getting started
+Jiu Jitsu instructionals can exceed 10 hours in duration that are usually spread from 5 to 8 video files on avarage and may contains hundrends of scenes/topics.
+For the obvious reasons, they cannot be watched in one go. Instead it's preferable to watch them in chunks and ideally
+itersperse training sessions between viewings. 
 
-Start by clicking "Use this template" at https://github.com/emilk/eframe_template/ or follow [these instructions](https://docs.github.com/en/free-pro-team@latest/github/creating-cloning-and-archiving-repositories/creating-a-repository-from-a-template).
+So, getting back to a particular topic, is not trivial. It should be!
 
-`src/app.rs` contains a simple example app. This is just to give some inspiration - most of it can be removed if you like.
+This tool splits instructionals into pieces and makes it easier for you to find what you are looking for.
 
-Make sure you are using the latest version of stable rust by running `rustup update`.
+### Inspiration
 
-The official egui docs are at <https://docs.rs/egui>. If you prefer watching a video introduction, check out <https://www.youtube.com/watch?v=NtUkr_z7l84>. For inspiration, check out the [the egui web demo](https://emilk.github.io/egui/index.html) and follow the links in it to its source code.
+A couple of months ago I started writing a series of blog posts called `Hackers Guide to Jiu Jitsu` that discussed about tools, scripts and tips for getting the most out of 
+instructionals. While shell scripts work, they lack visualization and are hard to tune. A graphical user interface solves both problems.
 
-### Testing locally
+If you are interested in the posts that I've written so far:
 
-`cargo run --release`
+- 01. Hackers guide to Jiu Jitsu: intro [wordpress version](https://iocanel.com/2021/08/hackers-guide-to-jiu-jitsu)  [github version](https://github.com/iocanel/blog/tree/master/hackers-guide-to-jiu-jitsu-01-intro)
+- 02. Hackers guide to Jiu Jitsu: ffmpeg [wordpress version](https://iocanel.com/2021/08/hackers-guide-to-jiu-jitsu-ffmpeg) [github version](https://github.com/iocanel/blog/tree/master/hackers-guide-to-jiu-jitsu-02-ffmpeg)
+- 03. Hackers guide to Jiu Jitsu: mplayer [wordpress version](https://iocanel.com/2021/08/hackers-guide-to-jiu-jitsu-mplayer) [github version](https://github.com/iocanel/blog/tree/master/hackers-guide-to-jiu-jitsu-03-mplayer)
+- 04. Hackers guide to Jiu Jitsu: markdown wiki [wordpress version](https://iocanel.com/2021/08/hackers-guide-to-jiu-jitsu-markdown-wiki) [github version](https://github.com/iocanel/blog/tree/master/hackers-guide-to-jiu-jitsu-04-markdown-wiki)
+- 05. Hackers guide to Jiu Jitsu: flowcharts [wordpress version](https://iocanel.com/2022/01/hackers-guide-to-jiu-jitsu-flowcharts) [github version](https://github.com/iocanel/blog/tree/master/hackers-guide-to-jiu-jitsu-05-flowcharts)
 
-On Linux you need to first run:
+### Requirements
 
-`sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libspeechd-dev libxkbcommon-dev libssl-dev`
+- ffmpeg
+- mpv 
+- opencv
+- tesseract
 
-On Fedora Rawhide you need to run:
-
-`dnf install clang clang-devel clang-tools-extra speech-dispatcher-devel libxkbcommon-devel pkg-config openssl-devel`
-
-For running the `build_web.sh` script you also need to install `jq` and `binaryena` with your packet manager of choice.
-
-### Compiling for the web
-
-You can compile your app to [WASM](https://en.wikipedia.org/wiki/WebAssembly) and publish it as a web page. For this you need to set up some tools. There are a few simple scripts that help you with this:
-
-``` sh
-./setup_web.sh
-./build_web.sh
-./start_server.sh
-open http://127.0.0.1:8080/
-```
-
-* `setup_web.sh` installs the tools required to build for web
-* `build_web.sh` compiles your code to wasm and puts it in the `docs/` folder (see below)
-* `start_server.sh` starts a local HTTP server so you can test before you publish
-* Open http://127.0.0.1:8080/ in a web browser to view
-
-The finished web app is found in the `docs/` folder (this is so that you can easily share it with [GitHub Pages](https://docs.github.com/en/free-pro-team@latest/github/working-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)). It consists of three files:
-
-* `index.html`: A few lines of HTML, CSS and JS that loads your app. **You need to edit this** (once) to replace `eframe_template` with the name of your crate!
-* `your_crate_bg.wasm`: What the Rust code compiles to.
-* `your_crate.js`: Auto-generated binding between Rust and JS.
-
-You can test the template app at <https://emilk.github.io/eframe_template/>.
-
-## Updating egui
-
-As of 2021, egui is in active development with frequent releases with breaking changes. [eframe_template](https://github.com/emilk/eframe_template/) will be updated in lock-step to always use the latest version of egui.

@@ -1,7 +1,7 @@
 [package]
-name = "eframe_template"
+name = "hg2jj"
 version = "0.1.0"
-authors = ["Emil Ernerfeldt <emil.ernerfeldt@gmail.com>"]
+authors = ["Ioannis Canellos <iocanel@gmail.com>"]
 edition = "2021"
 rust-version = "1.56"
 
@@ -12,12 +12,33 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 eframe = "0.16.0" # Gives us egui, epi and web+native backends
+rfd = "0.6.3"
+itertools = "0.10.3"
+image = "0.20.0"
+ffprobe = "0.3.0"
+ffmpeg = "0.3.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.61"
+regex = "1"
 
-serde = { version = "1", features = ["derive"], optional = true }
+# Scrapper
+reqwest = { version = "0.11", features = ["blocking", "cookies"] }
+scraper = "0.12.0"
+
+# OCR
+opencv = {version = "0.62.0", features = ["clang-runtime"] }
+spellcheck = "0.1.2"
+tesseract = "0.10.1"
+
+# Settings and Cache dirs
+platform-dirs = "0.3.0"
+
+# Asset management
+assets_manager = "0.7.2"
 
 [features]
 default = []
-persistence = ["eframe/persistence", "serde"] # Enable if you want to persist app state on shutdown
+persistence = ["eframe/persistence" ] # Enable if you want to persist app state on shutdown
 
 [profile.release]
 opt-level = 2 # fast and small wasm
