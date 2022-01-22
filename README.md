@@ -2,6 +2,8 @@
 
 A tool watching and navigating Jiu Jitsu instructionals.
 
+![hg2jj screenshot](screenshot.png "rg2jj") 
+
 ### Features:
 
 - Scene detection
