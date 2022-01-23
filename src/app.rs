@@ -717,7 +717,10 @@ impl epi::App for App {
                                 }
                                 *completed_tasks += 1.0;
                                 *progress =  *completed_tasks / *total_tasks;
-                                println!("Completed: {} / {} : {}", *completed_tasks, total_tasks, progress);
+                                if *progress == 1.0 {
+                                    *completed_tasks = 0.0;
+                                    *total_tasks = 0.0;
+                                }
                             },
                             Command::AddPendingTasks {tasks} => {
                                 *total_tasks += tasks as f32;
