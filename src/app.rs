@@ -705,7 +705,10 @@ impl epi::App for App {
                     if let Ok(command) = recv.try_recv() {
                         match command {
                             Command::AddScene {v_index, scene} => { instructional.videos[v_index].scenes.push(scene); },
-                            Command::RemoveScene {v_index, s_index} => { instructional.videos[v_index].scenes.remove(s_index); },
+                            Command::RemoveScene {v_index, s_index} => {
+                                instructional.videos[v_index].scenes.remove(s_index);
+                                scene_images[v_index].remove(s_index);
+                            },
                             Command::AddVideo {video} => { instructional.videos.push(video); },
                             Command::RemoveVideo {v_index} => { instructional.videos.remove(v_index); },
                             Command::UpdateThumbnail {v_index, s_index, image } => {
