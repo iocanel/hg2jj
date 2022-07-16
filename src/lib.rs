@@ -26,7 +26,6 @@ use opencv::{
     imgproc::*,
     types::*,
     prelude::*,
-    Result,
 };
 
 #[derive(Debug, Clone)]
@@ -352,6 +351,41 @@ pub fn scene_to_image(creator: String, title: String, scene: &Scene) -> Option<S
     }
     
     Some(img_path_str.to_string())
+}
+
+pub fn all_scenes(instructional: Instructional) -> Vec<Scene> {
+    let mut result: Vec<Scene> = Vec::new();
+    for i in 0..instructional.videos.len() {
+        for j in 0..instructional.videos[i].scenes.len()  {
+           result.push(instructional.videos[i].scenes[j].clone()); 
+        }
+    }
+    return result;
+}
+
+pub fn split_scene(index: usize, s: Scene) -> Option<Video>  {
+   let cmd = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
+    let extension = &s.file.split(".").last().unwrap_or("mp4");
+    let path = Path::new(&s.file);
+    let file = path.parent().unwrap().join(format!("{:03}. {}.{}", index, &s.title, extension).to_string()).to_str().unwrap().to_string();
+    let mut args: Vec<String> = vec![
+                "-i",
+                s.file.as_str(),
+                "-ss",
+                s.start.to_string().as_str()].iter().map(|s| s.to_string()).collect();
+
+            if s.end > 0 {
+                args.push("-to".to_string());
+                args.push(s.end.to_string());
+            }
+            args.push(file.to_string());
+            std::process::Command::new(cmd)
+                .args(args)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+
+           return Some(Video {index, file: file.to_string(), duration: 0, scenes: vec![Scene {index: 1, title: s.title.to_string(), file: file.to_string(), start: 0, end: 0, labels: vec![] }]});
 }
 
 pub fn play_scene(scene: Scene) {

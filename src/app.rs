@@ -3,8 +3,8 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::channel;
-use std::io::prelude::*;
 use crate::OcrSettings;
+use crate::all_scenes;
 use crate::app::egui::Vec2;
 use crate::File;
 use crate::get_popular_creators;
@@ -13,10 +13,10 @@ use crate::play_scene;
 use crate::save_org;
 use crate::save_playlist;
 use crate::scene_detect;
-use crate::scene_img_path;
 use crate::scene_ocr_img_path;
 use crate::scene_text_with_settings;
 use crate::seconds_to_time;
+use crate::split_scene;
 use crate::video_duration;
 use crate::scene_to_image;
 use crate::scrape_url;
@@ -57,7 +57,7 @@ pub struct App {
     recv: Receiver<Command>,
 }
 
-enum Command {
+pub enum Command {
     AddScene {
         v_index: usize,
         scene: Scene
@@ -199,7 +199,6 @@ impl epi::App for App {
                                 *instructional = load_org(File::open(&f).unwrap());
                                 *scene_images = allocate_scene_images(frame, &instructional.videos);
                                 *total_tasks += instructional.videos.iter().map(|v| v.scenes.len()).reduce(|a, b| a + b).unwrap_or_default() as f32;
-                                let mut completed = 0;
                                 for i in 0..instructional.videos.len() {
                                     for j in 0..instructional.videos[i].scenes.len()  {
                                         let frame = frame.clone();
@@ -209,7 +208,6 @@ impl epi::App for App {
                                         let send = send.clone();
                                         std::thread::spawn(move || {
                                             send.send(Command::UpdateThumbnail{v_index: i, s_index: j, image: create_scene_image(&frame, creator, title, &scene)}).expect("Failed to send UpdateThumbnail command!");
-                                            completed+=1;
                                         });
                                     }
                                 }
@@ -261,13 +259,30 @@ impl epi::App for App {
                         };
                     }
 
+                    if ui.button("Split").clicked() {
+                        let old = instructional.clone();
+                        let send = send.clone();
+                        instructional.videos = vec![];
+                        *scene_images = Vec::new();
+                        std::thread::spawn(move || {
+                            let all_scenes = all_scenes(old);
+                            send.send(Command::AddPendingTasks{tasks: all_scenes.len()}).expect("Failed to send AddPendingTasks command!");
+                            all_scenes.iter()
+                                .enumerate()
+                                .for_each(|(i, s)| {
+                                    if let Some(v) = split_scene(i + 1, s.clone()) {
+                                        send.send(Command::AddVideo {video: v}).expect("Failed to send AddVideo command!");
+                                    }
+                                });
+                        });
+                    }
+
                     if ui.button("Quit").clicked() {
                         frame.quit();
                     }
                 });
                 ui.menu_button("Tools", |ui| {
                     if ui.button("Update cache").clicked() {
-
                     }
                 });
                 ui.menu_button("Import", |ui| {
@@ -296,11 +311,20 @@ impl epi::App for App {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
                         let progress_bar = egui::ProgressBar::new(*progress as f32)
+                            .show_percentage()
                             .animate(true);
+
                     if *total_tasks > 0.0 {
                         *busy = ui
                             .add(progress_bar)
                             .hovered();
+                    }
+
+                    //reset the progress
+                    if *completed_tasks >= *total_tasks {
+                        *completed_tasks = 0.0;
+                        *total_tasks = 0.0;
+                        *progress = 0.0
                     }
                 });
             });
@@ -442,8 +466,11 @@ impl epi::App for App {
                                                     instructional.videos[i].scenes[last_index].end = duration;
                                                 }
                                                 *scene_images = allocate_scene_images(frame, &instructional.videos);
-
-                                                *total_tasks += instructional.videos[i].scenes.len() as f32;
+                                                let pending = send.clone();
+                                                let tasks = instructional.videos[i].scenes.len();
+                                                std::thread::spawn(move || {
+                                                    pending.send(Command::AddPendingTasks{tasks}).expect("Failed to send AddPendingTasks command!");
+                                                });
                                                 //We need to clone things that we pass to the thread.
                                                 for si in 0..instructional.videos[i].scenes.len() {
                                                     let f = frame.clone();
@@ -599,6 +626,7 @@ impl epi::App for App {
                                                             let scene = instructional.videos[i].scenes[j].clone();
                                                             let send = send.clone();
                                                             std::thread::spawn(move || {
+                                                                send.send(Command::AddPendingTasks{tasks: 1});
                                                                 send.send(Command::UpdateThumbnail{ v_index: i, s_index: j, image: create_scene_image(&f, creator, title, &scene)}).expect("Failed to send UpdateThumbnail command!");
                                                             });
                                                         } 
@@ -704,12 +732,23 @@ impl epi::App for App {
                     //Handle async UI actions
                     if let Ok(command) = recv.try_recv() {
                         match command {
-                            Command::AddScene {v_index, scene} => { instructional.videos[v_index].scenes.push(scene); },
+                            Command::AddScene {v_index, scene} => {
+                                instructional.videos[v_index].scenes.push(scene.clone());
+                                let index = instructional.videos[v_index].scenes.len() - 1;
+                                update_scene_images(frame, send, v_index, index, instructional);
+                            },
                             Command::RemoveScene {v_index, s_index} => {
                                 instructional.videos[v_index].scenes.remove(s_index);
                                 scene_images[v_index].remove(s_index);
                             },
-                            Command::AddVideo {video} => { instructional.videos.push(video); },
+                            Command::AddVideo {video} => {
+                                instructional.videos.push(video.clone());
+                                *completed_tasks += 1.0;
+                                *progress =  *completed_tasks / *total_tasks;
+                                println!("Completed: {} of {}.", completed_tasks, total_tasks);
+                                let index = instructional.videos.len() - 1;
+                                update_video_images(frame, send, index, instructional);
+                            },
                             Command::RemoveVideo {v_index} => { instructional.videos.remove(v_index); },
                             Command::UpdateThumbnail {v_index, s_index, image } => {
                                 if scene_images.len() > v_index && scene_images[v_index].len() > s_index {
@@ -717,10 +756,7 @@ impl epi::App for App {
                                 }
                                 *completed_tasks += 1.0;
                                 *progress =  *completed_tasks / *total_tasks;
-                                if *progress == 1.0 {
-                                    *completed_tasks = 0.0;
-                                    *total_tasks = 0.0;
-                                }
+                                println!("Completed: {} of {}.", completed_tasks, total_tasks);
                             },
                             Command::AddPendingTasks {tasks} => {
                                 *total_tasks += tasks as f32;
@@ -886,6 +922,25 @@ pub fn drop_target<R>(ui: &mut Ui, can_accept_what_is_being_dragged: bool, body:
     );
 
     InnerResponse::new(ret, response)
+}
+
+pub fn update_video_images(frame: &epi::Frame, send: &mut Sender<Command>, v_index: usize, instructional: &mut Instructional) {
+    println!("Updating video: {} images", v_index);
+  for s_index in 0..instructional.videos[v_index].scenes.len()  {
+      update_scene_images(frame, send, v_index, s_index, instructional)
+  }
+}
+
+pub fn update_scene_images(frame: &epi::Frame, send: &mut Sender<Command>, v_index: usize, s_index: usize, instructional: &mut Instructional) {
+    println!("\tUpdating video: {}/{} images", v_index, s_index);
+      let frame = frame.clone();
+      let creator = instructional.creator.clone();
+      let title = instructional.title.clone();
+      let scene = instructional.videos[v_index].scenes[s_index].clone();
+      let send = send.clone();
+      std::thread::spawn(move || {
+          send.send(Command::UpdateThumbnail{v_index, s_index, image: create_scene_image(&frame, creator, title, &scene)}).expect("Failed to send UpdateThumbnail command!");
+      });
 }
 
 pub fn or(left: String, right: String) -> String {
