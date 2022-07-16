@@ -14,7 +14,9 @@ VERSION="latest"
 xhost local:root
 docker run -v ~/:/home/$USERNAME \
     	   -v /mnt/media:/mnt/media \
+           -v ~/.cache/hg2jj:/opt/hg2jj/.cache \
     	   -v /tmp/.X11-unix:/tmp/.X11-unix \
            -e DISPLAY=$DISPLAY \
+           -e HG2JJ_DIR=/opt/hg2jj/ \
            --device=/dev/dri \
            iocanel/hg2jj:$VERSION

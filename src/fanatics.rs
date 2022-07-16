@@ -1,7 +1,9 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
+use std::env;
 use std::io::BufReader;
+use std::path::PathBuf;
 use platform_dirs::AppDirs;
 use scraper::Html;
 use scraper::Selector;
@@ -13,6 +15,7 @@ use itertools::Itertools;
 use crate::Scene;
 use crate::Instructional;
 use crate::time_to_seconds;
+
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Products {
@@ -31,9 +34,15 @@ pub fn get_popular_creators() -> Vec<String> {
     return vec!["John Danaher", "Gordon Ryan", "Craig Jones", "Lachlan Giles", "Mikey Musumeci", "Marcelo Garcia", "Bernando Faria", "Marcus Buchecha Almeida", "Andre Galvao"].iter().map(|s| s.to_string()).collect();
 }
 
+pub fn get_cache_dir() -> PathBuf {
+    return match env::var("HG2JJ_DIR") {
+        Ok(d) => PathBuf::from(d).join(".cache"),
+        Err(_) => AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap(),
+    };
+}
+
 pub fn get_cached_creators() -> Vec<String> {
-    let cache_dir = AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap();
-    let fanatics_dir = cache_dir.join("bjj-fanatics");
+    let fanatics_dir = get_cache_dir().join("bjj-fanatics");
     let path = fanatics_dir.join("products.json");
     std::fs::create_dir_all(&fanatics_dir).unwrap();
     // Try to fetch data from cache.
@@ -52,9 +61,7 @@ pub fn get_cached_creators() -> Vec<String> {
 
 pub fn scrape_url(url: String) -> Vec<Vec<Scene>> {
    let id = url.split("/").last().unwrap();
-   let cache_dir = AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap();
-   std::fs::create_dir_all(&cache_dir).expect("Failed to create cache dir!");
-   let fanatics_dir = cache_dir.join("bjj-fanatics");
+   let fanatics_dir = get_cache_dir().join("bjj-fanatics");
    let path = fanatics_dir.join(id);
    std::fs::create_dir_all(fanatics_dir).unwrap();
 
@@ -162,8 +169,7 @@ pub fn check_order(left: String, right: String) -> (String, String) {
 }
 
 pub fn update_cache(creator: String, title: String)   {
-    let cache_dir = AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap();
-    let fanatics_dir = cache_dir.join("bjj-fanatics");
+    let fanatics_dir = get_cache_dir().join("bjj-fanatics");
     let path = fanatics_dir.join("products.json");
     std::fs::create_dir_all(&fanatics_dir).unwrap();
 
@@ -176,8 +182,7 @@ pub fn update_cache(creator: String, title: String)   {
 }
 
 pub fn search_product(creator: String, title: String) -> Vec<Instructional> {
-    let cache_dir = AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap();
-    let fanatics_dir = cache_dir.join("bjj-fanatics");
+    let fanatics_dir = get_cache_dir().join("bjj-fanatics");
     let path = fanatics_dir.join("products.json");
     std::fs::create_dir_all(&fanatics_dir).unwrap();
 
