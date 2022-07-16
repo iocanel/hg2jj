@@ -39,10 +39,45 @@ If you are interested in the posts that I've written so far:
 - 04. Hackers guide to Jiu Jitsu: markdown wiki [wordpress version](https://iocanel.com/2021/08/hackers-guide-to-jiu-jitsu-markdown-wiki) [github version](https://github.com/iocanel/blog/tree/master/hackers-guide-to-jiu-jitsu-04-markdown-wiki)
 - 05. Hackers guide to Jiu Jitsu: flowcharts [wordpress version](https://iocanel.com/2022/01/hackers-guide-to-jiu-jitsu-flowcharts) [github version](https://github.com/iocanel/blog/tree/master/hackers-guide-to-jiu-jitsu-05-flowcharts)
 
-### Requirements
+
+### Running
+
+There are multiple ways to run the application. Due to the large number of dependencies which is a bit tricky to get right, it's recommended to run `hg2jj` [as a docker container](#as-a-docker-container).
+Still, you can build it locally and run it [as a desktop applicatin](#as-a-desktop-application).
+
+#### As a docker container
+
+The easiest way to run `hg2jj` is using docker. A helper script has been provided to run the container with all required parameters.
+
+```sh
+./scripts/run-in-docker.sh
+```
+
+##### Requirements
+
+- docker
+
+#### As a desktop application
+
+No ready binaries are provided. To build it locally you are going to need `rust` version `1.61` or higher and also supporting software and libraries.
+
+##### Requirements
 
 - ffmpeg
 - mpv 
 - opencv
 - tesseract
 
+##### Building
+
+```sh
+cargo build --release
+```
+
+##### Running
+
+```sh
+./target/release/hg2jj
+```
+
+The application needs to run from it's folder, in order to load the required assets.
