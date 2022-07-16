@@ -18,6 +18,6 @@ xhost local:root
 docker run -v ~/:/home/$USERNAME \
     	   -v /tmp/.X11-unix:/tmp/.X11-unix \
            -e DISPLAY=$DISPLAY \
-           --device=/dev/dri \ 
+           --device=/dev/dri \
            iocanel/hg2jj:$VERSION $ARGS
 
