@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc::Receiver;

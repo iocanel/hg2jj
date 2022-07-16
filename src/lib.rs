@@ -1,7 +1,5 @@
-//#![forbid(unsafe_code)]
-#![cfg_attr(not(debug_assertions), deny(warnings))] // Forbid warnings in release builds
-#![warn(clippy::all, rust_2018_idioms)]
-
+#![allow(unused_imports)]
+#![allow(dead_code)]
 mod app;
 mod fanatics;
 use opencv::core::{bitwise_not, BORDER_CONSTANT, Size_, NORM_L1};
