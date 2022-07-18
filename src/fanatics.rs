@@ -3,7 +3,9 @@
 
 use std::env;
 use std::io::BufReader;
+use std::os::unix::prelude::OsStringExt;
 use std::path::PathBuf;
+use opencv::prelude::ColorTraitConst;
 use platform_dirs::AppDirs;
 use scraper::Html;
 use scraper::Selector;
@@ -88,7 +90,7 @@ pub fn scrape_url(url: String) -> Vec<Vec<Scene>> {
 
 pub fn scrape_response(body: String) -> Vec<Vec<Scene>> {
     let html = Html::parse_document(&body);
-    let selector = &Selector::parse("section.course-content.no-mobile").expect("Error during the parsing using the given selector");
+    let selector = &Selector::parse("section#contents table").expect("Error during the parsing using the given selector");
     let volume_re = Regex::new(r"^Volume ([0-9]+)").unwrap();
     let time_re = Regex::new(r"^([0-9:]+)([ -]+([0-9:]+))?$").unwrap();
     let duration_re = Regex::new(r"^([0-9:]+) - ([0-9:]+)$").unwrap();
@@ -105,46 +107,35 @@ pub fn scrape_response(body: String) -> Vec<Vec<Scene>> {
         .map(|s| s.to_string())
         .collect::<Vec<String>>();
 
-    //Reorganize content by volume
-    let course_by_volume: Vec<Vec<(String, usize, Option<usize>)>> = course_content
-        .split(|l| volume_re.is_match(l))
-        .map(|l| l.to_vec().iter().chunks(2).into_iter().map(|c| {
-            let v: Vec<String> = c.map(|i| i.into()).collect();
-            let (title, timestamp) = check_order_s(&v[0], &v[1]);
-            if duration_re.is_match(&timestamp) {
-                let cap = duration_re.captures(&timestamp).expect("Failed to match duration!");
-                let start = cap.get(1).map(|m| time_to_seconds(m.as_str())).expect("Failed to caputre duration start!");
-                let end = cap.get(2).map(|m| time_to_seconds(m.as_str())).expect("Failed to caputre duration end!");
-                return (title, start, Some(end))
-            } else if time_re.is_match(&timestamp) {
-                let cap = time_re.captures(&timestamp).expect("Failed to match time!");
-                let start = cap.get(1).map(|m| time_to_seconds(m.as_str())).expect("Failed to caputre start offset!");
-                return (title, start, None)
-            }
-            return (title, 0, None)
-        }).collect::<Vec<(String, usize, Option<usize>)>>())
-        .collect();
+    let titles = &course_content.clone().into_iter()
+        .filter(|t| !time_re.is_match(t) && !duration_re.is_match(t))
+        .collect::<Vec<String>>();
 
+    let timestamps = course_content.clone().into_iter()
+        .filter(|t| time_re.is_match(t))
+        .map(|t| time_to_seconds(&t))
+        .collect::<Vec<usize>>();
 
-    for i in 0..course_by_volume.len() {
-        let mut scenes: Vec<Scene> = Vec::new();
-        for j in 0..course_by_volume[i].len() {
-            let title = course_by_volume[i][j].0.to_string();
-            let start = course_by_volume[i][j].1;
-            let mut end = 0;
-            if let Some(e) = course_by_volume[i][j].2 {
-                end = e;
-            } else if j + 1 < course_by_volume[i].len()  {
-                end = course_by_volume[i][j + 1].1;
-            } else {
-                end = 0;
-            }
-            scenes.push(Scene{index: j, title, start, end, labels: vec![], file: "".to_string()});
-        }
-        
-        result.push(scenes);
+    let mut durations = course_content.clone().into_iter()
+        .filter(|t| duration_re.is_match(t))
+        .map(|t| t.split(" - ").map(|s| s.to_string()).collect::<Vec<String>>())
+        .map(|a| (time_to_seconds(&a[0].to_string()), time_to_seconds(&a[1].to_string())))
+        .collect::<Vec<(usize, usize)>>();
+
+    if durations.len() == 0 {
+        durations = timestamps.clone().into_iter().zip(timestamps.clone().into_iter().skip(1)).collect::<Vec<(usize, usize)>>();
     }
-    result
+    
+    // Zip titles and durations into a tuple: (title, (start, end)) 
+    let all_scenes = titles.clone().into_iter().zip(durations.clone().into_iter())
+        .map(|(title, (start, end))| Scene{index: 0, title, start, end, labels: vec![], file: "".to_string()})
+        .collect::<Vec<Scene>>();
+
+    // Split the vector into a vector of vectors each time `end` is 0.
+   all_scenes
+        .split(|s| s.end == 0)
+        .map(|v| v.to_vec().into_iter().enumerate().map(|(index, s)| Scene{index, title: s.title, start: s.start, end: s.end, labels: s.labels, file: s.file}).collect_vec())
+        .collect::<Vec<Vec<Scene>>>()
 }
 
 //Reoder the two strings left & right so that they match [title] - [timestamps]
