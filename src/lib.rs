@@ -9,6 +9,7 @@ use regex::Regex;
 use spellcheck::Speller;
 use tesseract::{Tesseract, OcrEngineMode};
 use std::collections::HashMap;
+use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::io::{BufWriter, Write};
@@ -528,7 +529,7 @@ pub fn seconds_to_time(seconds: usize) -> String {
 }
 
 pub fn time_to_seconds(time: &str) -> usize {
-   let parts: Vec<u32> = time.split(":").map(|s| s.parse::<u32>().expect("Failed to convert time to units to numeric values!")).collect();
+   let parts: Vec<u32> = time.split(":").map(|s| s.parse::<u32>().unwrap_or(0)).collect();
     return parts.into_iter()
         .rev()
         .enumerate()
