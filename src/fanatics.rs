@@ -17,6 +17,7 @@ use itertools::Itertools;
 use crate::Scene;
 use crate::Instructional;
 use crate::time_to_seconds;
+use crate::get_cache_dir;
 
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -36,12 +37,6 @@ pub fn get_popular_creators() -> Vec<String> {
     return vec!["John Danaher", "Gordon Ryan", "Craig Jones", "Lachlan Giles", "Mikey Musumeci", "Marcelo Garcia", "Bernando Faria", "Marcus Buchecha Almeida", "Andre Galvao"].iter().map(|s| s.to_string()).collect();
 }
 
-pub fn get_cache_dir() -> PathBuf {
-    return match env::var("HG2JJ_DIR") {
-        Ok(d) => PathBuf::from(d).join(".cache"),
-        Err(_) => AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap(),
-    };
-}
 
 pub fn get_cached_creators() -> Vec<String> {
     let fanatics_dir = get_cache_dir().join("bjj-fanatics");

@@ -9,6 +9,7 @@ use regex::Regex;
 use spellcheck::Speller;
 use tesseract::{Tesseract, OcrEngineMode};
 use std::collections::HashMap;
+use std::env;
 use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -296,8 +297,7 @@ pub fn scene_detect(path: impl AsRef<std::path::Path>) -> Vec<(usize, f32)> {
 pub fn scene_img_path(creator: String, title: String, scene: &Scene) -> Option<PathBuf> {
     let path = Path::new(&scene.file);
     let file_name = path.file_name()?;
-    let cache_dir = AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir)?;
-    let instructional_dir = cache_dir.join("instructionals").join(creator).join(title);
+    let instructional_dir = get_cache_dir().join("instructionals").join(creator).join(title);
     std::fs::create_dir_all(&instructional_dir).expect("Failed to create instructional directory!");
     let mut img_filename = Path::new(file_name).file_stem()?.to_str()?.to_string();
     img_filename.push_str("-");
@@ -309,8 +309,7 @@ pub fn scene_img_path(creator: String, title: String, scene: &Scene) -> Option<P
 pub fn scene_ocr_img_path(creator: String, title: String, scene: &Scene) -> Option<PathBuf> {
     let path = Path::new(&scene.file);
     let file_name = path.file_name()?;
-    let cache_dir = AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir)?;
-    let instructional_dir = cache_dir.join("instructionals").join(creator).join(title);
+    let instructional_dir = get_cache_dir().join("instructionals").join(creator).join(title);
     std::fs::create_dir_all(&instructional_dir).expect("Failed to create instructional directory!");
     let mut img_filename = Path::new(file_name).file_stem()?.to_str()?.to_string();
     img_filename.push_str("-");
@@ -538,6 +537,12 @@ pub fn time_to_seconds(time: &str) -> usize {
         .unwrap() as usize;
 }
 
+pub fn get_cache_dir() -> PathBuf {
+    return match env::var("HG2JJ_DIR") {
+        Ok(d) => PathBuf::from(d).join(".cache"),
+        Err(_) => AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap(),
+    };
+}
 // ----------------------------------------------------------------------------
 // When compiling for web:
 
