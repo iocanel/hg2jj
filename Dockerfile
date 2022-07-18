@@ -22,4 +22,13 @@ COPY . .
 
 RUN cargo fetch
 RUN cargo build --release
-ENTRYPOINT /usr/src/myapp/target/release/hg2jj
+
+# Create intall directory
+RUN mkdir -p /opt/hg2jj/bin
+RUN mkdir -p /opt/hg2jj/.cache
+COPY assets /opt/hg2jj/assets
+
+# Install
+RUN cp /usr/src/myapp/target/release/hg2jj /opt/hg2jj/bin/hg2jj
+
+ENTRYPOINT /opt/hg2jj/bin/hg2jj

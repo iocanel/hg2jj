@@ -1,7 +1,9 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 use std::collections::HashMap;
+use std::env;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::channel;
@@ -33,6 +35,7 @@ use itertools::Itertools;
 use itertools::EitherOrBoth::Both;
 use itertools::EitherOrBoth::Left;
 use itertools::EitherOrBoth::Right;
+use platform_dirs::AppDirs;
 
 static BLANK: &str = "";
 
@@ -126,34 +129,33 @@ impl epi::App for App {
         if let Some(storage) = _storage {
             *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
         }
-        self.icons.insert("add-circle-line.png", load_texture_id(frame, Path::new("assets/icons/add-circle-line.png")).unwrap());
-        self.icons.insert("add-line", load_texture_id(frame, Path::new("assets/icons/add-line.png")).unwrap());
-        self.icons.insert("character-recognition-line", load_texture_id(frame, Path::new("assets/icons/character-recognition-line.png")).unwrap());
-        self.icons.insert("close-line", load_texture_id(frame, Path::new("assets/icons/close-line.png")).unwrap());
-        self.icons.insert("delete-bin-line", load_texture_id(frame, Path::new("assets/icons/delete-bin-line.png")).unwrap());
-        self.icons.insert("download-cloud-line", load_texture_id(frame, Path::new("assets/icons/download-cloud-line.png")).unwrap());
-        self.icons.insert("download-line", load_texture_id(frame, Path::new("assets/icons/download-line.png")).unwrap());
-        self.icons.insert("drop-line", load_texture_id(frame, Path::new("assets/icons/drop-line.png")).unwrap());
-        self.icons.insert("eject-line", load_texture_id(frame, Path::new("assets/icons/eject-line.png")).unwrap());
-        self.icons.insert("film-line", load_texture_id(frame, Path::new("assets/icons/film-line.png")).unwrap());
-        self.icons.insert("folder-download-line", load_texture_id(frame, Path::new("assets/icons/folder-download-line.png")).unwrap());
-        self.icons.insert("hammer-line", load_texture_id(frame, Path::new("assets/icons/hammer-line.png")).unwrap());
-        self.icons.insert("keyboard-box-line", load_texture_id(frame, Path::new("assets/icons/keyboard-box-line.png")).unwrap());
-        self.icons.insert("menu-line", load_texture_id(frame, Path::new("assets/icons/menu-line.png")).unwrap());
-        self.icons.insert("mouse-line", load_texture_id(frame, Path::new("assets/icons/mouse-line.png")).unwrap());
-        self.icons.insert("play-line", load_texture_id(frame, Path::new("assets/icons/play-line.png")).unwrap());
-        self.icons.insert("rewind-line", load_texture_id(frame, Path::new("assets/icons/rewind-line.png")).unwrap());
-        self.icons.insert("rewind-mini-line", load_texture_id(frame, Path::new("assets/icons/rewind-mini-line.png")).unwrap());
-        self.icons.insert("search-line", load_texture_id(frame, Path::new("assets/icons/search-line.png")).unwrap());
-        self.icons.insert("speed-line", load_texture_id(frame, Path::new("assets/icons/speed-line.png")).unwrap());
-        self.icons.insert("speed-mini-fill", load_texture_id(frame, Path::new("assets/icons/speed-mini-fill.png")).unwrap());
-        self.icons.insert("split-cells-horizontal", load_texture_id(frame, Path::new("assets/icons/split-cells-horizontal.png")).unwrap());
-        self.icons.insert("split-cells-vertical", load_texture_id(frame, Path::new("assets/icons/split-cells-vertical.png")).unwrap());
-        self.icons.insert("star-line", load_texture_id(frame, Path::new("assets/icons/star-line.png")).unwrap());
-        self.icons.insert("star-half-line", load_texture_id(frame, Path::new("assets/icons/star-half-line.png")).unwrap());
-        self.icons.insert("toggle-line", load_texture_id(frame, Path::new("assets/icons/toggle-line.png")).unwrap());
-        self.icons.insert("tools-line", load_texture_id(frame, Path::new("assets/icons/tools-line.png")).unwrap());
-
+        self.icons.insert("add-circle-line.png", load_texture_id(frame, get_icon("add-circle-line.png").as_path()).unwrap());
+        self.icons.insert("add-line", load_texture_id(frame, get_icon("add-line.png").as_path()).unwrap());
+        self.icons.insert("character-recognition-line", load_texture_id(frame, get_icon("character-recognition-line.png").as_path()).unwrap());
+        self.icons.insert("close-line", load_texture_id(frame, get_icon("close-line.png").as_path()).unwrap());
+        self.icons.insert("delete-bin-line", load_texture_id(frame, get_icon("delete-bin-line.png").as_path()).unwrap());
+        self.icons.insert("download-cloud-line", load_texture_id(frame, get_icon("download-cloud-line.png").as_path()).unwrap());
+        self.icons.insert("download-line", load_texture_id(frame, get_icon("download-line.png").as_path()).unwrap());
+        self.icons.insert("drop-line", load_texture_id(frame, get_icon("drop-line.png").as_path()).unwrap());
+        self.icons.insert("eject-line", load_texture_id(frame, get_icon("eject-line.png").as_path()).unwrap());
+        self.icons.insert("film-line", load_texture_id(frame, get_icon("film-line.png").as_path()).unwrap());
+        self.icons.insert("folder-download-line", load_texture_id(frame, get_icon("folder-download-line.png").as_path()).unwrap());
+        self.icons.insert("hammer-line", load_texture_id(frame, get_icon("hammer-line.png").as_path()).unwrap());
+        self.icons.insert("keyboard-box-line", load_texture_id(frame, get_icon("keyboard-box-line.png").as_path()).unwrap());
+        self.icons.insert("menu-line", load_texture_id(frame, get_icon("menu-line.png").as_path()).unwrap());
+        self.icons.insert("mouse-line", load_texture_id(frame, get_icon("mouse-line.png").as_path()).unwrap());
+        self.icons.insert("play-line", load_texture_id(frame, get_icon("play-line.png").as_path()).unwrap());
+        self.icons.insert("rewind-line", load_texture_id(frame, get_icon("rewind-line.png").as_path()).unwrap());
+        self.icons.insert("rewind-mini-line", load_texture_id(frame, get_icon("rewind-mini-line.png").as_path()).unwrap());
+        self.icons.insert("search-line", load_texture_id(frame, get_icon("search-line.png").as_path()).unwrap());
+        self.icons.insert("speed-line", load_texture_id(frame, get_icon("speed-line.png").as_path()).unwrap());
+        self.icons.insert("speed-mini-fill", load_texture_id(frame, get_icon("speed-mini-fill.png").as_path()).unwrap());
+        self.icons.insert("split-cells-horizontal", load_texture_id(frame, get_icon("split-cells-horizontal.png").as_path()).unwrap());
+        self.icons.insert("split-cells-vertical", load_texture_id(frame, get_icon("split-cells-vertical.png").as_path()).unwrap());
+        self.icons.insert("star-line", load_texture_id(frame, get_icon("star-line.png").as_path()).unwrap());
+        self.icons.insert("star-half-line", load_texture_id(frame, get_icon("star-half-line.png").as_path()).unwrap());
+        self.icons.insert("toggle-line", load_texture_id(frame, get_icon("toggle-line.png").as_path()).unwrap());
+        self.icons.insert("tools-line", load_texture_id(frame, get_icon("tools-line.png").as_path()).unwrap());
     }
 
     /// Called by the frame work to save state before shutdown.
@@ -996,4 +998,16 @@ pub fn parent_dir(file: &String) -> Option<String> {
     } else {
         None
     }
+}
+
+fn get_icon(icon_name: &str) -> PathBuf {
+    let local_icons = PathBuf::new().join(env::current_dir().unwrap()).join("assets").join("icons");
+    if local_icons.exists() {
+        return local_icons.join(icon_name);
+    }
+
+    return match env::var("HG2JJ_DIR") {
+        Ok(d) => PathBuf::from(d).join("assets").join("icons").join(icon_name),
+        Err(_) => local_icons.join(icon_name),
+    };
 }
