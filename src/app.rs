@@ -87,7 +87,7 @@ pub enum Command {
     UpdateThumbnail {
         v_index: usize,
         s_index: usize,
-        image: Option<egui::TextureId>, 
+        image: Option<egui::TextureId>,
     },
     AddPendingTasks {
         tasks: usize,
@@ -163,6 +163,8 @@ impl epi::App for App {
         self.icons.insert("star-half-line", load_texture_id(frame, get_icon("star-half-line.png").as_path()).unwrap());
         self.icons.insert("toggle-line", load_texture_id(frame, get_icon("toggle-line.png").as_path()).unwrap());
         self.icons.insert("tools-line", load_texture_id(frame, get_icon("tools-line.png").as_path()).unwrap());
+        self.icons.insert("arrow-up", load_texture_id(frame, get_icon("arrow-up-fill.png").as_path()).unwrap());
+        self.icons.insert("arrow-down", load_texture_id(frame, get_icon("arrow-down-fill.png").as_path()).unwrap());
     }
 
     /// Called by the frame work to save state before shutdown.
@@ -532,6 +534,52 @@ impl epi::App for App {
                                         });
                                     }
                                 });
+
+
+                                // Global video actions
+                                ui.horizontal(|ui| {
+                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text("Subtract one second from scenes").clicked() {
+                                        for j in 0..instructional.videos[i].scenes.len() {
+                                            instructional.videos[i].scenes[j].start-=1;
+                                            instructional.videos[i].scenes[j].end-=1;
+                                            sync_scene_end(&mut instructional.videos[i], j);
+                                            //We need to clone things that we pass to the thread.
+                                            let send = send.clone();
+                                            std::thread::spawn(move || {
+                                                send.send(Command::AddPendingTasks{tasks: 1});
+                                                send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                            });
+                                        }
+                                    }
+                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text("Add one second to scenes").clicked() {
+                                        for j in 0..instructional.videos[i].scenes.len() {
+                                            instructional.videos[i].scenes[j].start+=1;
+                                            instructional.videos[i].scenes[j].end+=1;
+                                            sync_scene_end(&mut instructional.videos[i], j);
+                                            //We need to clone things that we pass to the thread.
+                                            let send = send.clone();
+                                            std::thread::spawn(move || {
+                                                send.send(Command::AddPendingTasks{tasks: 1});
+                                                send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                            });
+
+                                        }
+                                    }
+                                    if ui.add(egui::ImageButton::new(*icons.get("arrow-up").unwrap(), (10.0, 10.0))).on_hover_text("Shift titles up").clicked() {
+                                        for j in 1..instructional.videos[i].scenes.len() {
+                                            instructional.videos[i].scenes[j - 1].title=instructional.videos[i].scenes[j].title.to_string();
+                                        }
+                                    }
+                                    if ui.add(egui::ImageButton::new(*icons.get("arrow-down").unwrap(), (10.0, 10.0))).on_hover_text("Shift titles down").clicked() {
+                                        for j in 1..instructional.videos[i].scenes.len() {
+                                            let k = instructional.videos[i].scenes.len() - j;
+                                            println!("Title: {} = {}.", k, k-1);
+                                            instructional.videos[i].scenes[k].title=instructional.videos[i].scenes[k - 1].title.to_string();
+                                        }
+                                    }
+                                });
+
+                                // Scenes - start
                                 for j in 0..instructional.videos[i].scenes.len() {
                                     let drop = drop_target(ui, true, |ui| {
                                         ui.horizontal(|ui| {
