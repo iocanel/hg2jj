@@ -123,14 +123,18 @@ pub fn scrape_response(body: String) -> Vec<Vec<Scene>> {
     
     // Zip titles and durations into a tuple: (title, (start, end)) 
     let all_scenes = titles.clone().into_iter().zip(durations.clone().into_iter())
-        .map(|(title, (start, end))| Scene{index: 0, title, start, end, labels: vec![], file: "".to_string()})
+        .enumerate() 
+        .map(|(index, (title, (start, end)))| Scene{index, title, start, end, labels: vec![], file: "".to_string()})
         .collect::<Vec<Scene>>();
 
     // Split the vector into a vector of vectors each time `end` is 0.
-   all_scenes
-        .split(|s| s.end == 0)
+  let result = all_scenes
+        .split(|s| (s.start == 0 && s.index != 0) || s.end == 0)
         .map(|v| v.to_vec().into_iter().enumerate().map(|(index, s)| Scene{index, title: s.title, start: s.start, end: s.end, labels: s.labels, file: s.file}).collect_vec())
-        .collect::<Vec<Vec<Scene>>>()
+        .collect::<Vec<Vec<Scene>>>();
+
+
+    return result;
 }
 
 //Reoder the two strings left & right so that they match [title] - [timestamps]
