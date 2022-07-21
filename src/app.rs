@@ -79,10 +79,15 @@ pub enum Command {
     RemoveVideo {
         v_index: usize
     },
-    UpdateThumbnail {
+    CreateThumbnail {
         v_index: usize,
         s_index: usize,
         imageFn: fn(frame: &epi::Frame, creator: String, title: String, s: &Scene) -> Option<egui::TextureId>, 
+    },
+    UpdateThumbnail {
+        v_index: usize,
+        s_index: usize,
+        image: Option<egui::TextureId>, 
     },
     AddPendingTasks {
         tasks: usize,
@@ -91,7 +96,7 @@ pub enum Command {
 
 impl Default for App {
     fn default() -> Self {
-        let (send, recv) = sync_channel(5);
+        let (send, recv) = sync_channel(4);
         Self {
             icons: HashMap::new(),
             file: BLANK.to_owned(), //refers to the index file (save file)
@@ -213,7 +218,7 @@ impl epi::App for App {
                                         let scene = instructional.videos[i].scenes[j].clone();
                                         let send = send.clone();
                                         std::thread::spawn(move || {
-                                            send.send(Command::UpdateThumbnail{v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send UpdateThumbnail command!");
+                                            send.send(Command::CreateThumbnail{v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
                                         });
                                     }
                                 }
@@ -480,12 +485,9 @@ impl epi::App for App {
                                                 //We need to clone things that we pass to the thread.
                                                 for si in 0..instructional.videos[i].scenes.len() {
                                                     let f = frame.clone();
-                                                    let creator = instructional.creator.clone();
-                                                    let title = instructional.title.clone();
-                                                    let scene = instructional.videos[i].scenes[si].clone();
                                                     let send = send.clone();
                                                     std::thread::spawn(move || {
-                                                        send.send(Command::UpdateThumbnail{ v_index: i, s_index: si, imageFn: create_scene_image}).expect("Failed to send UpdateThumbnail commnad!");
+                                                        send.send(Command::CreateThumbnail{ v_index: i, s_index: si, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail commnad!");
                                                     });
                                                 }
                                             },
@@ -502,9 +504,6 @@ impl epi::App for App {
 
                                     if ui.add(egui::ImageButton::new(*icons.get("search-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scenes").clicked() {
                                         let file = instructional.videos[i].file.clone();
-                                        let creator = instructional.creator.clone();
-                                        let title = instructional.title.clone();
-                                        let frame = frame.clone();
                                         let send = send.clone();
                                         std::thread::spawn(move || {
                                             let timestamps_with_scores: Vec<(usize, f32)> = scene_detect(Path::new(&file));
@@ -528,7 +527,7 @@ impl epi::App for App {
                                                 .map(| (si, (t, nt)) | (si, Scene {index: si, title: format!("Scene {}: {} - {}", si+1, t, nt), labels: vec![], file: file.to_string(), start: t, end: nt}))
                                                 .for_each(|(s_index, scene)| {
                                                     send.send(Command::AddScene{v_index: i, scene: scene.to_owned()}).expect("Failed to send AddScene command");
-                                                    send.send(Command::UpdateThumbnail{v_index: i, s_index, imageFn: create_scene_image}).expect("Failed to send UpdateThumbnail command");
+                                                    send.send(Command::CreateThumbnail{v_index: i, s_index, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command");
                                                 });
                                         });
                                     }
@@ -626,21 +625,15 @@ impl epi::App for App {
                                                         size *= (ui.available_width() / size.x).min(1.0);
                                                         if ui.add(egui::ImageButton::new(img, size)).clicked() {
                                                             //We need to clone things that we pass to the thread.
-                                                            let f = frame.clone();
-                                                            let creator = instructional.creator.clone();
-                                                            let title = instructional.title.clone();
-                                                            let scene = instructional.videos[i].scenes[j].clone();
                                                             let send = send.clone();
                                                             std::thread::spawn(move || {
                                                                 send.send(Command::AddPendingTasks{tasks: 1});
-                                                                send.send(Command::UpdateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send UpdateThumbnail command!");
+                                                                send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
                                                             });
                                                         } 
                                                         ui.separator();
                                                         ui.vertical(|ui| {
                                                             if ui.add(egui::ImageButton::new(*icons.get("play-line").unwrap(), (10.0, 10.0))).on_hover_text("Play Video").clicked() {
-                                                                let creator = instructional.creator.clone();
-                                                                let title = instructional.title.clone();
                                                                 let scene = instructional.videos[i].scenes[j].clone();
                                                                 std::thread::spawn(move || {
                                                                     play_scene(scene);
@@ -653,13 +646,9 @@ impl epi::App for App {
                                                                 if ui.add(egui::ImageButton::new(*icons.get("character-recognition-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scene title using OCR").clicked() {
                                                                     let scene = &instructional.videos[i].scenes[j];
                                                                     if let Some(text) = scene_text_with_settings(instructional.creator.to_string(), instructional.title.to_string(), scene, &ocr_settings) {
-                                                                        let f = frame.clone();
-                                                                        let creator = instructional.creator.clone();
-                                                                        let title = instructional.title.clone();
-                                                                        let scene = instructional.videos[i].scenes[j].clone();
                                                                         let send = send.clone();
                                                                         std::thread::spawn(move || {
-                                                                            send.send(Command::UpdateThumbnail{ v_index: i, s_index: j, imageFn: create_ocr_image}).expect("Failed to send UpdateThumbnail command!");
+                                                                            send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_ocr_image}).expect("Failed to send CreateThumbnail command!");
                                                                         });
                                                                         instructional.videos[i].scenes[j].title =  text;
                                                                     }
@@ -756,14 +745,25 @@ impl epi::App for App {
                                 update_video_images(frame, send, index, instructional);
                             },
                             Command::RemoveVideo {v_index} => { instructional.videos.remove(v_index); },
-                            Command::UpdateThumbnail {v_index, s_index, imageFn } => {
+                            Command::CreateThumbnail {v_index, s_index, imageFn } => {
+                                let frame = frame.clone();
+                                let creator = instructional.creator.to_string();
+                                let title = instructional.title.to_string();
+                                let scene = instructional.videos[v_index].scenes[s_index].clone();
+                                let send = send.clone();
+                                std::thread::spawn(move || {
+                                    send.send(Command::UpdateThumbnail{v_index, s_index, image: imageFn(&frame, creator, title, &scene)}).expect("Failed to send UpdateThumbnail command!");
+                                });
+                            },
+                            Command::UpdateThumbnail {v_index, s_index, image } => {
                                 if scene_images.len() > v_index && scene_images[v_index].len() > s_index {
-                                    scene_images[v_index][s_index] = imageFn(frame, instructional.creator.to_string(), instructional.title.to_string(), &instructional.videos[v_index].scenes[s_index]);
+                                    scene_images[v_index][s_index] = image;
                                 }
                                 *completed_tasks += 1.0;
                                 *progress =  *completed_tasks / *total_tasks;
                                 println!("Completed: {} of {}.", completed_tasks, total_tasks);
-                            },
+
+                            }
                             Command::AddPendingTasks {tasks} => {
                                 *total_tasks += tasks as f32;
                             }
@@ -945,7 +945,7 @@ pub fn update_scene_images(frame: &epi::Frame, send: &mut SyncSender<Command>, v
       let scene = instructional.videos[v_index].scenes[s_index].clone();
       let send = send.clone();
       std::thread::spawn(move || {
-          send.send(Command::UpdateThumbnail{v_index, s_index, imageFn: create_scene_image}).expect("Failed to send UpdateThumbnail command!");
+          send.send(Command::CreateThumbnail{v_index, s_index, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
       });
 }
 
