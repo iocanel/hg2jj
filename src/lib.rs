@@ -33,6 +33,7 @@ pub struct Instructional {
     creator: String,
     title: String,
     url: String,
+    timestamps: String,
     videos: Vec<Video>
 }
 
@@ -105,6 +106,8 @@ impl OcrSettings {
     }
 }
 
+static BLANK: &str = "";
+
 pub fn load_org(mut f: File) -> Instructional {
     let mut content = String::new();
     f.read_to_string(&mut content).expect("Failed to read file!");
@@ -119,6 +122,7 @@ pub fn parse_org(content: String) -> Instructional {
     let creator_re = Regex::new(r"#\+creator: (.*)").unwrap();
     let url_re = Regex::new(r"#\+url: (.*)").unwrap();
 
+    let volume_re = Regex::new(r"^\*+ Volume [0-9]+$").unwrap();
     let s_title_re = Regex::new(r"^\*+ ([a-zA-Z0-9'`\.,_ /:-]+) (:[a-zA-Z0-9_-]+:)$").unwrap();
     let start_timestamp_re = Regex::new(r"[ ]+:START_TIMESTAMP:[ ]+([0-9]+)").unwrap();
     let end_timestamp_re = Regex::new(r":END_TIMESTAMP:[ ]*([0-9]+)").unwrap();
@@ -153,6 +157,12 @@ pub fn parse_org(content: String) -> Instructional {
         if url_re.is_match(&line) {
             let cap = url_re.captures(&line).expect("Failed to match regex!");
             url = cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre url!");
+        }
+
+        if volume_re.is_match(&line) {
+            start = 0;
+            end = 0;
+            index = 0;
         }
 
         //When we reach properties end we push the scene
@@ -216,7 +226,7 @@ pub fn parse_org(content: String) -> Instructional {
            return v;
         }).collect();
     
-   Instructional{creator, title, url, videos}
+   Instructional{creator, title, url, timestamps: BLANK.to_owned(), videos}
 }
 
 pub fn save_playlist(instructional: &mut Instructional, out: File) {
@@ -325,8 +335,10 @@ pub fn scene_to_image(creator: String, title: String, scene: &Scene) -> Option<S
     if img_path.exists() {
         //A user is expected to recreate the file after tuning the offset.
         //Sicne the offset is part of the file name there is no reason to recreate the image for a specific offset (the result will be the same).
+        println!("Scene image: {} found. Reusing ...", img_path_str);
         return Some(img_path_str.to_string())
     }
+    println!("Scene image: {} does not exist. Creating ...", img_path_str);
     let cmd = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
     let out = std::process::Command::new(cmd)
         .args([
@@ -467,9 +479,9 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
         if let Some(ocr_file) = ocr_preprocess_img(img_file, ocr_settings) {
             let tesseract =  Tesseract::new_with_oem(None, Some("eng"), OcrEngineMode::LstmOnly).expect("Failed to initialize tesseract!");
             let mut recongnize = tesseract.set_image(ocr_file.as_str()).expect("Failed to set image!").recognize().expect("Failed to recognize text!");
-            let alpha_re = Regex::new(r"^[a-zA-Z]+$").unwrap();
+            let alpha_re = Regex::new(r"[^a-zA-Z]+$").unwrap();
             let space_or_newline_re = Regex::new(r"[\n\r\s]+").unwrap();
-            let invalid_characters_re = Regex::new(r"[^a-zA-Z0-9 ]").unwrap();
+            let invalid_characters_re = Regex::new(r"[^a-zA-Z0-9\\(\\) -]").unwrap();
             let ocr_text = recongnize.get_text().expect("Failed to get text from tesseract!");
             let text_single_line = space_or_newline_re.replace_all(&ocr_text, " ");
             let text = invalid_characters_re.replace(&text_single_line, "").to_string();
@@ -483,14 +495,14 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
                 let training_data = std::fs::read_to_string("assets/dict/rgjj.txt").expect("Failed to read spellchecking dictionary");
                 speller.train(&training_data);
 
-                return Some(text.split(" ")
+                return Some(text.trim().split(" ")
                             .map(|w| w.replace(" ", ""))
                             .map(|w| if !w.is_empty() && alpha_re.is_match(&w) { speller.correct(&w) } else { w.to_string() })
                             .map(|w| invalid_characters_re.replace_all(&w, "").to_string())
                             .intersperse(" ".to_string())
                             .collect());
             } else {
-                return Some(text.split(" ")
+                return Some(text.trim().split(" ")
                             .map(|w| w.replace(" ", ""))
                             .map(|w| invalid_characters_re.replace_all(&w, "").to_string())
                             .intersperse(" ".to_string())
@@ -523,18 +535,29 @@ pub fn seconds_to_time(seconds: usize) -> String {
     let hours_r = seconds % 3600;
     let minutes = hours_r / 60;
     let minutes_r = hours_r % 60;
-    format!("{:02}:{:02}:{:02}", hours, minutes, minutes_r)
-
+    // It's highly unlikely an instructional video to be longer than 3 hours.
+    // So we assume that this is an error.
+    if hours > 3 {
+        return format!("{:02}:{:02}:{:02}", 0 , hours, minutes);
+    }
+    return format!("{:02}:{:02}:{:02}", hours, minutes, minutes_r);
 }
 
 pub fn time_to_seconds(time: &str) -> usize {
-   let parts: Vec<u32> = time.split(":").map(|s| s.parse::<u32>().unwrap_or(0)).collect();
-    return parts.into_iter()
+   let mut parts: Vec<u32> = time.split(":").map(|s| s.parse::<u32>().unwrap_or(0)).collect();
+    // It's highly unlikely an instructional video to be longer than 3 hours.
+    // So we assume that this is an error.
+    let last_index = parts.len() - 1;
+    if parts.len() >= 3 && parts[0] > 3 && parts[last_index] == 0 {
+        // Let's remove the last element (skip all parts to the right).
+        parts = parts.into_iter().rev().skip(1).rev().collect();
+    }
+    parts.into_iter()
         .rev()
         .enumerate()
         .map(|(i, t)| (60 as u32).pow(i as u32) * t)
         .reduce(|a, b| a + b)
-        .unwrap() as usize;
+        .unwrap() as usize
 }
 
 pub fn get_cache_dir() -> PathBuf {
@@ -612,6 +635,12 @@ Random comments
         assert_eq!(3600, time_to_seconds("01:00:00"));
         assert_eq!(3601, time_to_seconds("01:00:01"));
         assert_eq!(3661, time_to_seconds("01:01:01"));
+
+        // actual probelms
+        assert_eq!(1380, time_to_seconds("23:00"));
+        assert_eq!(1380, time_to_seconds("23:00:00"));
+        assert_eq!(1380, time_to_seconds("1:13"));
+        assert_eq!(1380, time_to_seconds("1:18:10"));
     }
 
     #[test]

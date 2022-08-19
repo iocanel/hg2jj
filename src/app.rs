@@ -6,9 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::channel;
-use std::sync::mpsc::sync_channel;
 use crate::OcrSettings;
 use crate::all_scenes;
 use crate::app::egui::Vec2;
@@ -21,6 +19,7 @@ use crate::save_playlist;
 use crate::scene_detect;
 use crate::scene_ocr_img_path;
 use crate::scene_text_with_settings;
+use crate::extract_timestamps;
 use crate::seconds_to_time;
 use crate::split_scene;
 use crate::video_duration;
@@ -55,13 +54,16 @@ pub struct App {
     use_title_combo: bool,
     candidate_urls: Vec<String>,
     scene_images: Vec<Vec<Option<egui::TextureId>>>,
+    step_in_secs: usize,
     ocr_settings: OcrSettings,
     busy: bool,
     total_tasks: f32,
     completed_tasks: f32,
     progress: f32,
-    send: SyncSender<Command>,
+    sender: Sender<Command>,
     recv: Receiver<Command>,
+    job_sender: Sender<Job>,
+    job_recv: Receiver<Job>,
 }
 
 pub enum Command {
@@ -79,11 +81,6 @@ pub enum Command {
     RemoveVideo {
         v_index: usize
     },
-    CreateThumbnail {
-        v_index: usize,
-        s_index: usize,
-        imageFn: fn(frame: &epi::Frame, creator: String, title: String, s: &Scene) -> Option<egui::TextureId>, 
-    },
     UpdateThumbnail {
         v_index: usize,
         s_index: usize,
@@ -94,27 +91,40 @@ pub enum Command {
     },
 }
 
+pub enum Job {
+    CreateThumbnail {
+        v_index: usize,
+        s_index: usize,
+        imageFn: fn(frame: &epi::Frame, creator: String, title: String, s: &Scene) -> Option<egui::TextureId>,
+    },
+}
+
+
 impl Default for App {
     fn default() -> Self {
-        let (send, recv) = sync_channel(4);
+        let (sender, recv) = channel();
+        let (job_sender, job_recv) = channel();
         Self {
             icons: HashMap::new(),
             file: BLANK.to_owned(), //refers to the index file (save file)
             last_selected_file: BLANK.to_owned(), //refers to the index file (save file)
-            instructional: Instructional{creator: BLANK.to_owned(), title: BLANK.to_owned(), url: BLANK.to_owned(), videos: vec![]},
+            instructional: Instructional{creator: BLANK.to_owned(), title: BLANK.to_owned(), url: BLANK.to_owned(), timestamps: BLANK.to_owned(), videos: vec![]},
             candidate_creators: vec!["John Danaher", "Gordon Ryan", "Craig Jones", "Lachlan Giles", "Mikey Musumeci", "Marcelo Garcia", "Bernando Faria", "Marcus Buchecha Almeida", "Andre Galvao"].iter().map(|s| s.to_string()).collect(),
             use_creator_combo: false,
             use_title_combo: false,
             candidate_titles: vec![],
             candidate_urls: vec![],
             scene_images: vec![],
+            step_in_secs: 1,
             ocr_settings: OcrSettings::new(),
             busy: true,
             total_tasks: 0.0,
             completed_tasks: 0.0,
             progress: 0.0,
-            send,
+            sender,
             recv,
+            job_sender,
+            job_recv,
         } 
     }
 }
@@ -177,7 +187,7 @@ impl epi::App for App {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
-        let Self { icons, file, last_selected_file, instructional, candidate_creators, use_creator_combo, candidate_titles, use_title_combo, candidate_urls,  scene_images, ocr_settings, busy, completed_tasks, total_tasks, progress, send, recv } = self;
+        let Self { icons, file, last_selected_file, instructional, candidate_creators, use_creator_combo, candidate_titles, use_title_combo, candidate_urls,  scene_images, step_in_secs, ocr_settings, busy, completed_tasks, total_tasks, progress, sender, recv, job_sender, job_recv } = self;
 
         // Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -189,13 +199,14 @@ impl epi::App for App {
                 ui.menu_button("File", |ui| {
                     if ui.button("New").clicked() {
                         *file = "".to_owned();
-                        *instructional = Instructional{creator: BLANK.to_owned(), title: BLANK.to_owned(), url: BLANK.to_owned(), videos: vec![]};
+                        *instructional = Instructional{creator: BLANK.to_owned(), title: BLANK.to_owned(), url: BLANK.to_owned(), timestamps: BLANK.to_owned(), videos: vec![]};
                         *use_creator_combo = false;
                         *candidate_creators = get_cached_creators();
                         *use_title_combo = false;
                         *candidate_titles = vec![];
                         *candidate_urls = vec![];
                         *scene_images = vec![];
+                        *step_in_secs = 1;
                     }
                     if ui.button("Open").clicked() {
                         let dir = parent_dir(&file).unwrap_or_else(|| parent_dir(last_selected_file).unwrap_or("/".to_string()));
@@ -214,14 +225,7 @@ impl epi::App for App {
                                 *total_tasks += instructional.videos.iter().map(|v| v.scenes.len()).reduce(|a, b| a + b).unwrap_or_default() as f32;
                                 for i in 0..instructional.videos.len() {
                                     for j in 0..instructional.videos[i].scenes.len()  {
-                                        let frame = frame.clone();
-                                        let creator = instructional.creator.clone();
-                                        let title = instructional.title.clone();
-                                        let scene = instructional.videos[i].scenes[j].clone();
-                                        let send = send.clone();
-                                        std::thread::spawn(move || {
-                                            send.send(Command::CreateThumbnail{v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
-                                        });
+                                        job_sender.send(Job::CreateThumbnail{v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
                                     }
                                 }
                             },
@@ -274,17 +278,17 @@ impl epi::App for App {
 
                     if ui.button("Split").clicked() {
                         let old = instructional.clone();
-                        let send = send.clone();
+                        let sender = sender.clone();
                         instructional.videos = vec![];
                         *scene_images = Vec::new();
                         std::thread::spawn(move || {
                             let all_scenes = all_scenes(old);
-                            send.send(Command::AddPendingTasks{tasks: all_scenes.len()}).expect("Failed to send AddPendingTasks command!");
+                            sender.send(Command::AddPendingTasks{tasks: all_scenes.len()}).expect("Failed to send AddPendingTasks command!");
                             all_scenes.iter()
                                 .enumerate()
                                 .for_each(|(i, s)| {
                                     if let Some(v) = split_scene(i + 1, s.clone()) {
-                                        send.send(Command::AddVideo {video: v}).expect("Failed to send AddVideo command!");
+                                        sender.send(Command::AddVideo {video: v}).expect("Failed to send AddVideo command!");
                                     }
                                 });
                         });
@@ -323,9 +327,9 @@ impl epi::App for App {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
-                        let progress_bar = egui::ProgressBar::new(*progress as f32)
-                            .show_percentage()
-                            .animate(true);
+                    let progress_bar = egui::ProgressBar::new(*progress as f32)
+                        .show_percentage()
+                        .animate(true);
 
                     if *total_tasks > 0.0 {
                         *busy = ui
@@ -422,21 +426,44 @@ impl epi::App for App {
                 ui.add_sized(Vec2::new(ui.available_size().x - 100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut instructional.url));
                 if ui.add(egui::ImageButton::new(*icons.get("download-cloud-line").unwrap(), (10.0, 10.0))).on_hover_text("Download timestamps").clicked() {
                     //Scrap instuctional info but try to retain things like associated files, labels etc
-                    instructional.videos = scrape_url(instructional.url.to_string())
+                    instructional.timestamps = scrape_url(instructional.url.to_string());
+                } 
+
+                if !instructional.timestamps.is_empty() && ui.add(egui::ImageButton::new(*icons.get("arrow-down").unwrap(), (10.0, 10.0))).on_hover_text("Apply timestamps").clicked() {
+                    instructional.videos = extract_timestamps(instructional.timestamps.clone())
                         .iter()
                         .filter(|s| !s.is_empty())
                         .enumerate()
                         .map(|(i, s)| (i, s, if instructional.videos.len() > i { instructional.videos[i].file.clone() } else { format!("Volume{}.mp4", i + 1) }))
                         .map(|(i, s, file) | Video {index: i + 1, file: file.clone(), scenes: s.iter().map(|s| Scene { index: s.index, title: s.title.clone(), start: s.start, end: s.end, file: file.clone(), labels: s.labels.to_vec()}).collect(), duration: 0})
                         .collect();
-                } 
+                }
             });
+
+            if !instructional.timestamps.is_empty() {
+                egui::CollapsingHeader::new("Scraped text").id_source(Id::new("scraped-text")).default_open(false).show(ui, |ui| { 
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .show(ui, |ui| {
+                            ui.add_sized(Vec2::new(ui.available_size().x - 100.0, ui.available_size().y - 300.0) , egui::TextEdit::multiline(&mut instructional.timestamps));
+                        });
+                });
+            }
 
             ui.horizontal(|ui| {
                 ui.heading("Videos");
                 if ui.add(egui::ImageButton::new(*icons.get("add-line").unwrap(), (10.0, 10.0))).on_hover_text("Add video").clicked() {
                     add_video(&mut instructional.videos, last_selected_file);
                 }
+            });
+
+            ui.separator();
+
+            egui::CollapsingHeader::new("Settings").id_source(Id::new("settings")).default_open(false).show(ui, |ui| { 
+                ui.horizontal(|ui| {
+                    ui.label("Step in seconds");
+                    ui.add(egui::Slider::new(step_in_secs, 1..=10)).on_hover_text("The number of seconds to use when offsetting scenes of this video.");
+                });
             });
 
             ui.separator();
@@ -448,72 +475,62 @@ impl epi::App for App {
                     let mut drop_scene = None;
                     for i in 0..instructional.videos.len() {
                         egui::CollapsingHeader::new(format!("{}", i + 1)).id_source(Id::new("video").with(i)).default_open(true).show(ui, |ui| { 
-                        ui.horizontal(|ui| {
-                            ui.vertical(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.text_edit_singleline(&mut instructional.videos[i].file);
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.text_edit_singleline(&mut instructional.videos[i].file);
 
-                                    if ui.add(egui::ImageButton::new(*icons.get("film-line").unwrap(), (10.0, 10.0))).on_hover_text("Select video").clicked() {
-                                        let dir = video_dir(&instructional.videos[i])
-                                            .unwrap_or_else(||
-                                                            scenes_dir(&instructional.videos[i].scenes)
-                                                            .unwrap_or_else(||
-                                                                            parent_dir(&last_selected_file.clone()).unwrap_or("/".to_string())));
-                                        let file = rfd::FileDialog::new()
-                                            .add_filter("Video files", &["avi", "mpg", "mp4", "mkv"])
-                                            .set_directory(dir)
-                                            .pick_file();
+                                        if ui.add(egui::ImageButton::new(*icons.get("film-line").unwrap(), (10.0, 10.0))).on_hover_text("Select video").clicked() {
+                                            let dir = video_dir(&instructional.videos[i])
+                                                .unwrap_or_else(||
+                                                                scenes_dir(&instructional.videos[i].scenes)
+                                                                .unwrap_or_else(||
+                                                                                parent_dir(&last_selected_file.clone()).unwrap_or("/".to_string())));
+                                            let file = rfd::FileDialog::new()
+                                                .add_filter("Video files", &["avi", "mpg", "mp4", "mkv"])
+                                                .set_directory(dir)
+                                                .pick_file();
 
-                                        match file {
-                                            Some(f) => {
-                                                let f_str = f.as_path().to_str().unwrap().to_string();
-                                                *last_selected_file = f_str.clone();
-                                                for s in 0..instructional.videos[i].scenes.len() {
-                                                    instructional.videos[i].scenes[s].file = f_str.clone();
-                                                }
-                                                instructional.videos[i].file = f_str.clone();
-                                                let duration = video_duration(f_str);
-                                                instructional.videos[i].duration = duration;
-                                                if instructional.videos[i].scenes.len() > 0 {
-                                                    let last_index: usize = instructional.videos[i].scenes.len() - 1;
-                                                    instructional.videos[i].scenes[last_index].end = duration;
-                                                }
-                                                *scene_images = allocate_scene_images(frame, &instructional.videos);
-                                                let pending = send.clone();
-                                                let tasks = instructional.videos[i].scenes.len();
-                                                std::thread::spawn(move || {
+                                            match file {
+                                                Some(f) => {
+                                                    let f_str = f.as_path().to_str().unwrap().to_string();
+                                                    *last_selected_file = f_str.clone();
+                                                    for s in 0..instructional.videos[i].scenes.len() {
+                                                        instructional.videos[i].scenes[s].file = f_str.clone();
+                                                    }
+                                                    instructional.videos[i].file = f_str.clone();
+                                                    let duration = video_duration(f_str);
+                                                    instructional.videos[i].duration = duration;
+                                                    if instructional.videos[i].scenes.len() > 0 {
+                                                        let last_index: usize = instructional.videos[i].scenes.len() - 1;
+                                                        instructional.videos[i].scenes[last_index].end = duration;
+                                                    }
+                                                    *scene_images = allocate_scene_images(frame, &instructional.videos);
+                                                    let pending = sender.clone();
+                                                    let tasks = instructional.videos[i].scenes.len();
                                                     pending.send(Command::AddPendingTasks{tasks}).expect("Failed to send AddPendingTasks command!");
-                                                });
-                                                //We need to clone things that we pass to the thread.
-                                                for si in 0..instructional.videos[i].scenes.len() {
-                                                    let f = frame.clone();
-                                                    let send = send.clone();
-                                                    std::thread::spawn(move || {
-                                                        send.send(Command::CreateThumbnail{ v_index: i, s_index: si, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail commnad!");
-                                                    });
-                                                }
-                                            },
-                                            None =>  {}
-                                        };
-                                    }
+                                                    //We need to clone things that we pass to the thread.
+                                                    for si in 0..instructional.videos[i].scenes.len() {
+                                                        job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: si, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail commnad!");
+                                                    }
+                                                },
+                                                None =>  {}
+                                            };
+                                        }
 
-                                    if ui.add(egui::ImageButton::new(*icons.get("eject-line").unwrap(), (10.0, 10.0))).on_hover_text("Eject video").clicked() {
-                                        let send = send.clone();
-                                        std::thread::spawn(move || {
-                                            send.send(Command::RemoveVideo{ v_index: i }).expect("Failed to send Remove Video Command");
-                                        });
-                                    }
+                                        if ui.add(egui::ImageButton::new(*icons.get("eject-line").unwrap(), (10.0, 10.0))).on_hover_text("Eject video").clicked() {
+                                            sender.send(Command::RemoveVideo{ v_index: i }).expect("Failed to send Remove Video Command");
+                                        }
 
-                                    if ui.add(egui::ImageButton::new(*icons.get("search-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scenes").clicked() {
-                                        let file = instructional.videos[i].file.clone();
-                                        let send = send.clone();
-                                        std::thread::spawn(move || {
+                                        if ui.add(egui::ImageButton::new(*icons.get("search-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scenes").clicked() {
+                                            let file = instructional.videos[i].file.clone();
+                                            let sender = sender.clone();
                                             let timestamps_with_scores: Vec<(usize, f32)> = scene_detect(Path::new(&file));
                                             let timestamps = timestamps_with_scores.into_iter()
                                                 .map(|(t, s)| t)
                                                 .fold(vec![0], |mut v, i| {v.push(i); v});
 
-                                            send.send(Command::AddPendingTasks {tasks: timestamps.len()} );
+                                            sender.send(Command::AddPendingTasks {tasks: timestamps.len()} );
                                             timestamps.to_vec() //t
                                                 .into_iter()
                                                 .zip_longest(timestamps.into_iter().skip(1)) //( t, nt)
@@ -528,61 +545,56 @@ impl epi::App for App {
                                                 .enumerate() // (i, (t, nt))
                                                 .map(| (si, (t, nt)) | (si, Scene {index: si, title: format!("Scene {}: {} - {}", si+1, t, nt), labels: vec![], file: file.to_string(), start: t, end: nt}))
                                                 .for_each(|(s_index, scene)| {
-                                                    send.send(Command::AddScene{v_index: i, scene: scene.to_owned()}).expect("Failed to send AddScene command");
-                                                    send.send(Command::CreateThumbnail{v_index: i, s_index, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command");
+                                                    sender.send(Command::AddScene{v_index: i, scene: scene.to_owned()}).expect("Failed to send AddScene command");
+                                                    job_sender.send(Job::CreateThumbnail{v_index: i, s_index, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command");
                                                 });
-                                        });
-                                    }
-                                });
+                                        }
+                                    });
 
 
-                                // Global video actions
-                                ui.horizontal(|ui| {
-                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text("Subtract one second from scenes").clicked() {
-                                        for j in 0..instructional.videos[i].scenes.len() {
-                                            instructional.videos[i].scenes[j].start-=1;
-                                            instructional.videos[i].scenes[j].end-=1;
-                                            sync_scene_end(&mut instructional.videos[i], j);
-                                            //We need to clone things that we pass to the thread.
-                                            let send = send.clone();
-                                            std::thread::spawn(move || {
-                                                send.send(Command::AddPendingTasks{tasks: 1});
-                                                send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
-                                            });
+                                    // Global video actions
+                                    ui.horizontal(|ui| {
+                                        if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s) from all scenes", step_in_secs)).clicked() {
+                                            for j in 0..instructional.videos[i].scenes.len() {
+                                                instructional.videos[i].scenes[j].start-=step_in_secs.to_owned();
+                                            }
+                                            for j in 0..instructional.videos[i].scenes.len() {
+                                                sync_scene_end(&mut instructional.videos[i], j);
+                                                //We need to clone things that we pass to the thread.
+                                                sender.send(Command::AddPendingTasks{tasks: 1});
+                                                job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                            }
                                         }
-                                    }
-                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text("Add one second to scenes").clicked() {
-                                        for j in 0..instructional.videos[i].scenes.len() {
-                                            instructional.videos[i].scenes[j].start+=1;
-                                            instructional.videos[i].scenes[j].end+=1;
-                                            sync_scene_end(&mut instructional.videos[i], j);
-                                            //We need to clone things that we pass to the thread.
-                                            let send = send.clone();
-                                            std::thread::spawn(move || {
-                                                send.send(Command::AddPendingTasks{tasks: 1});
-                                                send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
-                                            });
+                                        if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s) to all scenes", step_in_secs)).clicked() {
+                                            for j in 0..instructional.videos[i].scenes.len() {
+                                                instructional.videos[i].scenes[j].start+=step_in_secs.to_owned();
+                                            }
+                                            for j in 0..instructional.videos[i].scenes.len() {
+                                                sync_scene_end(&mut instructional.videos[i], j);
+                                                //We need to clone things that we pass to the thread.
+                                                let sender = sender.clone();
+                                                sender.send(Command::AddPendingTasks{tasks: 1});
+                                                job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                            }
+                                        }
+                                        if ui.add(egui::ImageButton::new(*icons.get("arrow-up").unwrap(), (10.0, 10.0))).on_hover_text("Shift titles up").clicked() {
+                                            for j in 1..instructional.videos[i].scenes.len() {
+                                                instructional.videos[i].scenes[j - 1].title=instructional.videos[i].scenes[j].title.to_string();
+                                            }
+                                        }
+                                        if ui.add(egui::ImageButton::new(*icons.get("arrow-down").unwrap(), (10.0, 10.0))).on_hover_text("Shift titles down").clicked() {
+                                            for j in 1..instructional.videos[i].scenes.len() {
+                                                let k = instructional.videos[i].scenes.len() - j;
+                                                println!("Title: {} = {}.", k, k-1);
+                                                instructional.videos[i].scenes[k].title=instructional.videos[i].scenes[k - 1].title.to_string();
+                                            }
+                                        }
+                                    });
 
-                                        }
-                                    }
-                                    if ui.add(egui::ImageButton::new(*icons.get("arrow-up").unwrap(), (10.0, 10.0))).on_hover_text("Shift titles up").clicked() {
-                                        for j in 1..instructional.videos[i].scenes.len() {
-                                            instructional.videos[i].scenes[j - 1].title=instructional.videos[i].scenes[j].title.to_string();
-                                        }
-                                    }
-                                    if ui.add(egui::ImageButton::new(*icons.get("arrow-down").unwrap(), (10.0, 10.0))).on_hover_text("Shift titles down").clicked() {
-                                        for j in 1..instructional.videos[i].scenes.len() {
-                                            let k = instructional.videos[i].scenes.len() - j;
-                                            println!("Title: {} = {}.", k, k-1);
-                                            instructional.videos[i].scenes[k].title=instructional.videos[i].scenes[k - 1].title.to_string();
-                                        }
-                                    }
-                                });
-
-                                // Scenes - start
-                                for j in 0..instructional.videos[i].scenes.len() {
-                                    let drop = drop_target(ui, true, |ui| {
-                                        ui.horizontal(|ui| {
+                                    // Scenes - start
+                                    for j in 0..instructional.videos[i].scenes.len() {
+                                        let drop = drop_target(ui, true, |ui| {
+                                            ui.horizontal(|ui| {
                                             let scene_title_id = Id::new("scene_title").with(i).with(j);
                                             if ui.add(egui::ImageButton::new(*icons.get("split-cells-vertical").unwrap(), (10.0, 10.0))).on_hover_text("Split scene").clicked() {
                                                 let scene_to_add = instructional.videos[i].scenes[j].clone();
@@ -604,10 +616,7 @@ impl epi::App for App {
                                             ui.separator();
 
                                             if ui.add(egui::ImageButton::new(*icons.get("close-line").unwrap(), (10.0, 10.0))).on_hover_text("Remove scene").clicked() {
-                                                let send = send.clone();
-                                                std::thread::spawn(move || {
-                                                    send.send(Command::RemoveScene{ v_index: i, s_index: j }).expect("Failed to send Remove Scene Command");
-                                                });
+                                                sender.send(Command::RemoveScene{ v_index: i, s_index: j }).expect("Failed to send Remove Scene Command");
                                             }
 
                                             if ui.memory().is_being_dragged(scene_title_id) {
@@ -617,23 +626,35 @@ impl epi::App for App {
                                         });
                                         ui.horizontal(|ui| {
                                             ui.vertical(|ui| {
-                                                let lower_bound = if j == 0 { 0 } else { instructional.videos[i].scenes[j - 1].end };
-                                                let higher_bound = if j + 1 == instructional.videos[i].scenes.len() { instructional.videos[i].duration } else { instructional.videos[i].scenes[j + 1].start };
+                                                let lower_bound = 0;
+                                                let higher_bound = 3*60*60;
+ 
+                                                // let lower_bound = if j == 0 { 0 } else { instructional.videos[i].scenes[j - 1].end };
+                                                // let higher_bound = if j + 1 == instructional.videos[i].scenes.len() { instructional.videos[i].duration } else { instructional.videos[i].scenes[j + 1].start };
                                                 ui.label(format!("Start: {}", seconds_to_time(instructional.videos[i].scenes[j].start)));
                                                 ui.horizontal(|ui| {
-                                                   if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text("Subtract one second").clicked() {
-                                                        instructional.videos[i].scenes[j].start-=1;
+                                                    let mut refresh_needed = false;
+                                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s)", step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].start-=step_in_secs.to_owned();
+                                                        refresh_needed = true;
                                                     }
-                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text("Add one second").clicked() {
-                                                        instructional.videos[i].scenes[j].start+=1; 
+                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s)", step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].start+=step_in_secs.to_owned(); 
                                                         sync_scene_start(&mut instructional.videos[i], j);
+                                                        refresh_needed = true;
                                                     }
-
                                                     if instructional.videos[i].scenes[j].start > instructional.videos[i].scenes[j].end && instructional.videos[i].scenes[j].end > 0 &&
                                                         ui.add(egui::ImageButton::new(*icons.get("tools-line").unwrap(), (10.0, 10.0)))
                                                         .on_hover_text(format!("Recommended fix:{}", instructional.videos[i].scenes[j].start/60)).clicked() {
                                                         instructional.videos[i].scenes[j].start/=60;
                                                         sync_scene_start(&mut instructional.videos[i], j);
+                                                        refresh_needed = true;
+                                                    }
+
+                                                    if refresh_needed {
+                                                       //We need to clone things that we pass to the thread.
+                                                       sender.send(Command::AddPendingTasks{tasks: 1});
+                                                       job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
                                                     }
                                                 });
                                                 if ui.add(egui::Slider::new(&mut instructional.videos[i].scenes[j].start, lower_bound..=higher_bound)).changed() {
@@ -641,13 +662,16 @@ impl epi::App for App {
                                                 }
                                                 ui.label(format!("End: {}", seconds_to_time(instructional.videos[i].scenes[j].end)));
                                                 ui.horizontal(|ui| {
-                                                   if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text("Subtract one second").clicked() {
-                                                        instructional.videos[i].scenes[j].end-=1;
+                                                   let mut refresh_needed = false;
+                                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s)", step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].end-=step_in_secs.to_owned();
                                                         sync_scene_end(&mut instructional.videos[i], j);
+                                                        refresh_needed = true;
                                                     }
-                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text("Add one second").clicked() {
-                                                        instructional.videos[i].scenes[j].end+=1; 
+                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s)", step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].end+=step_in_secs.to_owned(); 
                                                         sync_scene_end(&mut instructional.videos[i], j);
+                                                        refresh_needed = true;
                                                     }
 
                                                     if j + 1 < instructional.videos[i].scenes.len()
@@ -655,10 +679,17 @@ impl epi::App for App {
                                                         && ui.add(egui::ImageButton::new(*icons.get("tools-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Recommended fix: {}", instructional.videos[i].scenes[j].end/60)).clicked() {
                                                             instructional.videos[i].scenes[j].end/=60;
                                                             instructional.videos[i].scenes[j + 1].start=instructional.videos[i].scenes[j].end;
+                                                            refresh_needed = true;
                                                         } else if j + 1 == instructional.videos[i].scenes.len() && instructional.videos[i].scenes[j].end == 0
                                                         && ui.add(egui::ImageButton::new(*icons.get("tools-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Recommended fix: video duration")).clicked() {
                                                             instructional.videos[i].scenes[j].end=video_duration(instructional.videos[i].file.to_string());
+                                                            refresh_needed = true;
                                                         }
+                                                    if refresh_needed {
+                                                       //We need to clone things that we pass to the thread.
+                                                       sender.send(Command::AddPendingTasks{tasks: 1});
+                                                       job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                                    }
                                                 });
                                                 if ui.add(egui::Slider::new(&mut instructional.videos[i].scenes[j].end, lower_bound..=higher_bound)).changed() {
                                                     sync_scene_end(&mut instructional.videos[i], j);
@@ -673,11 +704,8 @@ impl epi::App for App {
                                                         size *= (ui.available_width() / size.x).min(1.0);
                                                         if ui.add(egui::ImageButton::new(img, size)).clicked() {
                                                             //We need to clone things that we pass to the thread.
-                                                            let send = send.clone();
-                                                            std::thread::spawn(move || {
-                                                                send.send(Command::AddPendingTasks{tasks: 1});
-                                                                send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
-                                                            });
+                                                            sender.send(Command::AddPendingTasks{tasks: 1});
+                                                            job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
                                                         } 
                                                         ui.separator();
                                                         ui.vertical(|ui| {
@@ -694,10 +722,7 @@ impl epi::App for App {
                                                                 if ui.add(egui::ImageButton::new(*icons.get("character-recognition-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scene title using OCR").clicked() {
                                                                     let scene = &instructional.videos[i].scenes[j];
                                                                     if let Some(text) = scene_text_with_settings(instructional.creator.to_string(), instructional.title.to_string(), scene, &ocr_settings) {
-                                                                        let send = send.clone();
-                                                                        std::thread::spawn(move || {
-                                                                            send.send(Command::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_ocr_image}).expect("Failed to send CreateThumbnail command!");
-                                                                        });
+                                                                        job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_ocr_image}).expect("Failed to send CreateThumbnail command!");
                                                                         instructional.videos[i].scenes[j].title =  text;
                                                                     }
                                                                 }
@@ -773,49 +798,68 @@ impl epi::App for App {
                     }
 
                     //Handle async UI actions
-                    if let Ok(command) = recv.try_recv() {
-                        match command {
-                            Command::AddScene {v_index, scene} => {
-                                instructional.videos[v_index].scenes.push(scene.clone());
-                                let index = instructional.videos[v_index].scenes.len() - 1;
-                                update_scene_images(frame, send, v_index, index, instructional);
-                            },
-                            Command::RemoveScene {v_index, s_index} => {
-                                instructional.videos[v_index].scenes.remove(s_index);
-                                scene_images[v_index].remove(s_index);
-                            },
-                            Command::AddVideo {video} => {
-                                instructional.videos.push(video.clone());
-                                *completed_tasks += 1.0;
-                                *progress =  *completed_tasks / *total_tasks;
-                                println!("Completed: {} of {}.", completed_tasks, total_tasks);
-                                let index = instructional.videos.len() - 1;
-                                update_video_images(frame, send, index, instructional);
-                            },
-                            Command::RemoveVideo {v_index} => { instructional.videos.remove(v_index); },
-                            Command::CreateThumbnail {v_index, s_index, imageFn } => {
-                                let frame = frame.clone();
-                                let creator = instructional.creator.to_string();
-                                let title = instructional.title.to_string();
-                                let scene = instructional.videos[v_index].scenes[s_index].clone();
-                                let send = send.clone();
-                                std::thread::spawn(move || {
-                                    send.send(Command::UpdateThumbnail{v_index, s_index, image: imageFn(&frame, creator, title, &scene)}).expect("Failed to send UpdateThumbnail command!");
-                                });
-                            },
-                            Command::UpdateThumbnail {v_index, s_index, image } => {
-                                if scene_images.len() > v_index && scene_images[v_index].len() > s_index {
-                                    scene_images[v_index][s_index] = image;
-                                }
-                                *completed_tasks += 1.0;
-                                *progress =  *completed_tasks / *total_tasks;
-                                println!("Completed: {} of {}.", completed_tasks, total_tasks);
+                    let mut commands:Vec<Command> = vec![];
+                    let mut jobs:Vec<Job> = vec![];
 
-                            }
-                            Command::AddPendingTasks {tasks} => {
-                                *total_tasks += tasks as f32;
-                            }
-                        }
+                    while let Ok(command) = recv.try_recv() {
+                        commands.push(command);
+                    }
+
+                    while let Ok(job) = job_recv.try_recv() {
+                        jobs.push(job);
+                    }
+
+                    if !commands.is_empty() {
+                        commands.into_iter().for_each(|command| {
+                            match command {
+                                Command::AddScene {v_index, scene} => {
+                                    instructional.videos[v_index].scenes.push(scene.clone());
+                                    let index = instructional.videos[v_index].scenes.len() - 1;
+                                    update_scene_images(&frame, job_sender, v_index, index, instructional);
+                                },
+                                Command::RemoveScene {v_index, s_index} => {
+                                    instructional.videos[v_index].scenes.remove(s_index);
+                                    scene_images[v_index].remove(s_index);
+                                },
+                                Command::AddVideo {video} => {
+                                    instructional.videos.push(video.clone());
+                                    let index = instructional.videos.len() - 1;
+                                    update_video_images(&frame, job_sender, index, instructional);
+                                },
+                                Command::RemoveVideo {v_index} => { instructional.videos.remove(v_index); },
+                                Command::UpdateThumbnail {v_index, s_index, image } => {
+                                    if scene_images.len() > v_index && scene_images[v_index].len() > s_index {
+                                        scene_images[v_index][s_index] = image;
+                                    }
+                                    *completed_tasks += 1.0;
+                                    *progress =  *completed_tasks / *total_tasks;
+                                    println!("Completed: {} of {}.", completed_tasks, total_tasks);
+                                }
+                                Command::AddPendingTasks {tasks} => {
+                                    *total_tasks += tasks as f32;
+                                }
+                            } 
+                        });
+                    }
+
+                    if !jobs.is_empty() {
+                        let job_chunk_size = if jobs.len() < 3 { 1 } else { jobs.len() / 3 };
+                        jobs.into_iter().chunks(job_chunk_size).into_iter().for_each(|chunk| {
+                            let frame = frame.clone();
+                            let instructional = instructional.clone();
+                            let sender = sender.clone();
+                            let chunk_jobs = chunk.collect::<Vec<Job>>();
+                            std::thread::spawn(move || {
+                                chunk_jobs.into_iter().for_each(|job| {
+                                    match job {
+                                        Job::CreateThumbnail {v_index, s_index, imageFn } => {
+                                            let scene = instructional.videos[v_index].scenes[s_index].clone();
+                                            sender.send(Command::UpdateThumbnail{v_index, s_index, image: imageFn(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
+                                        },
+                                    }
+                                });
+                            });
+                        });
                     }
                 });
         });
@@ -831,6 +875,7 @@ impl epi::App for App {
     }
 }
 
+    
 fn add_video(videos: &mut Vec<Video>, last_selected: &mut String) {
     let dir = videos_dir(&videos.to_vec()).unwrap_or_else(||or(last_selected.to_string(), "/".to_string()));
     let target = rfd::FileDialog::new()
@@ -842,6 +887,7 @@ fn add_video(videos: &mut Vec<Video>, last_selected: &mut String) {
         Some(t) => {
             let target_path = Path::new(&t);
             let file = target_path.to_str().expect("Failed to convert input video path to string!").to_string();
+            println!("Adding video:{}", file);
             *last_selected = file.clone();
             let duration = video_duration(file.clone());
             videos.push(Video{index: videos.len(), file, scenes: vec![], duration});
@@ -978,23 +1024,16 @@ pub fn drop_target<R>(ui: &mut Ui, can_accept_what_is_being_dragged: bool, body:
     InnerResponse::new(ret, response)
 }
 
-pub fn update_video_images(frame: &epi::Frame, send: &mut SyncSender<Command>, v_index: usize, instructional: &mut Instructional) {
+pub fn update_video_images(frame: &epi::Frame, sender: &mut Sender<Job>, v_index: usize, instructional: &mut Instructional) {
     println!("Updating video: {} images", v_index);
   for s_index in 0..instructional.videos[v_index].scenes.len()  {
-      update_scene_images(frame, send, v_index, s_index, instructional)
+      update_scene_images(frame, sender, v_index, s_index, instructional)
   }
 }
 
-pub fn update_scene_images(frame: &epi::Frame, send: &mut SyncSender<Command>, v_index: usize, s_index: usize, instructional: &mut Instructional) {
+pub fn update_scene_images(frame: &epi::Frame, sender: &mut Sender<Job>, v_index: usize, s_index: usize, instructional: &mut Instructional) {
     println!("\tUpdating video: {}/{} images", v_index, s_index);
-      let frame = frame.clone();
-      let creator = instructional.creator.clone();
-      let title = instructional.title.clone();
-      let scene = instructional.videos[v_index].scenes[s_index].clone();
-      let send = send.clone();
-      std::thread::spawn(move || {
-          send.send(Command::CreateThumbnail{v_index, s_index, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
-      });
+    sender.send(Job::CreateThumbnail{v_index, s_index, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
 }
 
 pub fn or(left: String, right: String) -> String {

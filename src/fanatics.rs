@@ -5,6 +5,7 @@ use std::env;
 use std::io::BufReader;
 use std::os::unix::prelude::OsStringExt;
 use std::path::PathBuf;
+use std::usize::MAX;
 use opencv::prelude::ColorTraitConst;
 use platform_dirs::AppDirs;
 use scraper::Html;
@@ -37,6 +38,7 @@ pub fn get_popular_creators() -> Vec<String> {
     return vec!["John Danaher", "Gordon Ryan", "Craig Jones", "Lachlan Giles", "Mikey Musumeci", "Marcelo Garcia", "Bernando Faria", "Marcus Buchecha Almeida", "Andre Galvao"].iter().map(|s| s.to_string()).collect();
 }
 
+static BLANK: &str = "";
 
 pub fn get_cached_creators() -> Vec<String> {
     let fanatics_dir = get_cache_dir().join("bjj-fanatics");
@@ -56,7 +58,7 @@ pub fn get_cached_creators() -> Vec<String> {
     return get_popular_creators();
 }
 
-pub fn scrape_url(url: String) -> Vec<Vec<Scene>> {
+pub fn scrape_url(url: String) -> String {
    let id = url.split("/").last().unwrap();
    let fanatics_dir = get_cache_dir().join("bjj-fanatics");
    let path = fanatics_dir.join(id);
@@ -66,7 +68,7 @@ pub fn scrape_url(url: String) -> Vec<Vec<Scene>> {
         let mut f = File::open(path).expect("Failed to open timstamps file from cache!");
         let mut content = String::new();
         f.read_to_string(&mut content).expect("Failed to read file!");
-        return scrape_response(content);
+        return scrape_html(content);
     }
 
    let client = reqwest::blocking::Client::builder().cookie_store(false).build().ok().unwrap();
@@ -80,31 +82,40 @@ pub fn scrape_url(url: String) -> Vec<Vec<Scene>> {
 
     let mut f = File::create(path).expect("Failed to open timstamps file from cache!");
     f.write_all(&response.as_bytes()).expect("Failed to write timepstamps to cache!");
-    scrape_response(response)
+    scrape_html(response)
 }
 
-pub fn scrape_response(body: String) -> Vec<Vec<Scene>> {
+pub fn scrape_html(body: String) -> String {
     let html = Html::parse_document(&body);
     let selector = &Selector::parse("section#contents table").expect("Error during the parsing using the given selector");
-    let volume_re = Regex::new(r"^Volume ([0-9]+)").unwrap();
-    let time_re = Regex::new(r"^([0-9:]+)([ -]+([0-9:]+))?$").unwrap();
-    let duration_re = Regex::new(r"^([0-9:]+) - ([0-9:]+)$").unwrap();
-    let time_re = Regex::new(r"^([0-9:]+)$").unwrap();
-    
-    let mut result: Vec<Vec<Scene>> = Vec::new();
-
+   
     //Get the content line by line
     let course_content = html.select(selector)
         .flat_map(|el| el.text())
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
-        .skip(1) // Skip 'Course Content' heading
         .map(|s| s.to_string())
         .collect::<Vec<String>>();
 
+    return course_content.join("\n");
+}
+
+pub fn extract_timestamps(body: String) -> Vec<Vec<Scene>> {
+    let duration_re = Regex::new(r"^([0-9:]+) - ([0-9:]+)$").unwrap();
+    let time_re = Regex::new(r"^([0-9:]+)$").unwrap();
+
+    let course_content = body.lines() 
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>();
+ 
     let titles = &course_content.clone().into_iter()
         .filter(|t| !time_re.is_match(t) && !duration_re.is_match(t))
         .collect::<Vec<String>>();
+
+    println!("Titles");
+    titles.clone().into_iter().for_each(|t| println!("{}", t));
 
     let timestamps = course_content.clone().into_iter()
         .filter(|t| time_re.is_match(t))
@@ -121,6 +132,8 @@ pub fn scrape_response(body: String) -> Vec<Vec<Scene>> {
         durations = timestamps.clone().into_iter().zip(timestamps.clone().into_iter().skip(1)).collect::<Vec<(usize, usize)>>();
     }
     
+    println!("Durations");
+    durations.clone().into_iter().for_each(|(s,e)| println!("{}-{}", s,e));
     // Zip titles and durations into a tuple: (title, (start, end)) 
     let all_scenes = titles.clone().into_iter().zip(durations.clone().into_iter())
         .enumerate() 
@@ -128,11 +141,37 @@ pub fn scrape_response(body: String) -> Vec<Vec<Scene>> {
         .collect::<Vec<Scene>>();
 
     // Split the vector into a vector of vectors each time `end` is 0.
-  let result = all_scenes
-        .split(|s| (s.start == 0 && s.index != 0) || s.end == 0)
-        .map(|v| v.to_vec().into_iter().enumerate().map(|(index, s)| Scene{index, title: s.title, start: s.start, end: s.end, labels: s.labels, file: s.file}).collect_vec())
-        .collect::<Vec<Vec<Scene>>>();
+  // let result = all_scenes
+  //       .split(|s| (s.start == 0 && s.index != 0) || s.end == 0)
+  //       .map(|v| v.to_vec().into_iter().enumerate().map(|(index, s)| Scene{index, title: s.title, start: s.start, end: s.end, labels: s.labels, file: s.file}).collect_vec())
+  //       .collect::<Vec<Vec<Scene>>>();
 
+    let mut result:Vec<Vec<Scene>> = vec![];
+    let mut v: i32 = -1;
+    let mut index = 0;
+    let mut last_start = MAX;
+
+    println!("All scenes");
+    all_scenes.into_iter().for_each(|s|  {
+        // New volume
+        if s.start < last_start {
+            result.push(vec![]);
+            v+=1;
+            index=0;
+        }
+        last_start = s.start;
+        result[v as usize].push(Scene{index, title: s.title, start: s.start, end: s.end, labels: s.labels, file: s.file});
+        println!("{} - {}: {}" , result[v as usize][index].start, result[v as usize][index].end, result[v as usize][index].title);
+        index+=1;
+    });
+
+    println!("Scrapped:");
+    for i in 0..result.len() {
+        println!("Volume: {}" , (i+1));
+        for j in 0..result[i].len() {
+            println!("{} - {}: {}" , result[i][j].start, result[i][j].end, result[i][j].title);
+        }
+    }
 
     return result;
 }
@@ -214,7 +253,7 @@ pub fn search_product(creator: String, title: String) -> Vec<Instructional> {
 }
 
 pub fn product_to_instructional(product: Product) -> Instructional {
-    return Instructional {creator: product.vendor, title: product.title, url: format!("https://bjjfanatics.com/products/{}", product.handle), videos: vec![] };
+    return Instructional {creator: product.vendor, title: product.title, url: format!("https://bjjfanatics.com/products/{}", product.handle), timestamps: BLANK.to_owned(), videos: vec![] };
 }
 
 pub fn search_product_page(page: usize) -> Vec<Product> {
