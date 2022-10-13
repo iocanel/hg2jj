@@ -19,6 +19,7 @@ use crate::Scene;
 use crate::Instructional;
 use crate::time_to_seconds;
 use crate::get_cache_dir;
+use crate::clean_title;
 
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -160,7 +161,8 @@ pub fn extract_timestamps(body: String) -> Vec<Vec<Scene>> {
             index=0;
         }
         last_start = s.start;
-        result[v as usize].push(Scene{index, title: s.title, start: s.start, end: s.end, labels: s.labels, file: s.file});
+        let clean_title = clean_title(s.title);
+        result[v as usize].push(Scene{index, title: clean_title, start: s.start, end: s.end, labels: s.labels, file: s.file});
         println!("{} - {}: {}" , result[v as usize][index].start, result[v as usize][index].end, result[v as usize][index].title);
         index+=1;
     });
@@ -207,7 +209,7 @@ pub fn update_cache(creator: String, title: String)   {
        std::fs::remove_file(path).unwrap();
     }
 
-    search_product("".to_string(), "".to_string());
+    search_product(creator, title);
 }
 
 pub fn search_product(creator: String, title: String) -> Vec<Instructional> {

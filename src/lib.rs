@@ -123,7 +123,7 @@ pub fn parse_org(content: String) -> Instructional {
     let url_re = Regex::new(r"#\+url: (.*)").unwrap();
 
     let volume_re = Regex::new(r"^\*+ Volume [0-9]+$").unwrap();
-    let s_title_re = Regex::new(r"^\*+ ([a-zA-Z0-9'`\.,_ /:-]+) (:[a-zA-Z0-9_-]+:)$").unwrap();
+    let s_title_re = Regex::new(r"^\*+ ([a-zA-Z0-9'`\.,_ /&:-]+) (:[a-zA-Z0-9_-]+:)$").unwrap();
     let start_timestamp_re = Regex::new(r"[ ]+:START_TIMESTAMP:[ ]+([0-9]+)").unwrap();
     let end_timestamp_re = Regex::new(r":END_TIMESTAMP:[ ]*([0-9]+)").unwrap();
     let end_re = Regex::new(r":END:").unwrap();
@@ -187,7 +187,7 @@ pub fn parse_org(content: String) -> Instructional {
 
         if s_title_re.is_match(&line) {
             let cap = s_title_re.captures(&line).expect("Failed to match regex!");
-            s_title = cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre title!");
+            s_title = clean_title(cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre title!"));
         }
         if start_timestamp_re.is_match(&line) {
             let cap = start_timestamp_re.captures(&line).expect("Failed to match regex!");
@@ -243,7 +243,7 @@ pub fn save_playlist(instructional: &mut Instructional, out: File) {
 pub fn save_org(instructional: &mut Instructional, out: File) {
     let mut out = BufWriter::new(out);
     out.write_all(format!("#+creator: {}\n", instructional.creator).as_bytes()).expect("Unable to write creator!");
-    out.write_all(format!("#+title: {}\n", instructional.title).as_bytes()).expect("Unable to write title!");
+    out.write_all(format!("#+title: {}\n", clean_title(instructional.title.to_string())).as_bytes()).expect("Unable to write title!");
     out.write_all(format!("#+url: {}\n", instructional.url).as_bytes()).expect("Unable to write title!");
     out.write_all("\n".as_bytes()).expect("Unable to write separator line!");
     instructional.videos.iter().for_each(|v| {
@@ -256,10 +256,10 @@ pub fn save_org(instructional: &mut Instructional, out: File) {
         out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
         v.scenes.iter().for_each(|s| {
             s.labels.iter().fold(String::from(":video:"), |all, l| format!("{}{}", all.chars().take(all.len()-1).collect::<String>(), l));
-            out.write_all(format!("*** {} :video:\n", s.title).as_bytes()).expect("Unable to write scene title!");
+            out.write_all(format!("*** {} :video:\n", clean_title(s.title.to_string())).as_bytes()).expect("Unable to write scene title!");
             out.write_all(":PROPERTIES:\n".as_bytes()).expect("Unable to write scene properties start!");
             out.write_all(format!(":INDEX: {}\n", s.index + 1).as_bytes()).expect("Unable to write scene index!");
-            out.write_all(format!(":FILE_OR_URL: {}\n", s.file).as_bytes()).expect("Unable to write scene file or url!");
+            out.write_all(format!(":FILE_OR_URL: {}\n", escape_path(&s.file)).as_bytes()).expect("Unable to write scene file or url!");
             out.write_all(format!(":START_TIMESTAMP: {}\n", s.start).as_bytes()).expect("Unable to write scene start timestamp!");
             out.write_all(format!(":END_TIMESTAMP: {}\n", s.end).as_bytes()).expect("Unable to write scene end timestamp!");
             out.write_all(":END:\n".as_bytes()).expect("Unable to write scene properties end!");
@@ -269,12 +269,11 @@ pub fn save_org(instructional: &mut Instructional, out: File) {
     });
 }
 
-pub fn scene_detect(path: impl AsRef<std::path::Path>) -> Vec<(usize, f32)> {
-    let path = path.as_ref();
+pub fn scene_detect(path: String) -> Vec<(usize, f32)> {
+    let path = escape_path(path.as_str());
     let time_re = Regex::new(r".*best_effort_timestamp_time=([0-9\.]+).*scene_score=([0-9\.]+)").expect("Failed to define regular expression for timestamp in ffprobe output!");
-
     let cmd = if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" };
-    let out = std::process::Command::new("ffprobe")
+    let out = std::process::Command::new(cmd)
         .args([
             "-v",
             "quiet",
@@ -286,16 +285,17 @@ pub fn scene_detect(path: impl AsRef<std::path::Path>) -> Vec<(usize, f32)> {
             "compact=p=0",
             "-f",
             "lavfi",
-            format!("movie={},select=gt(scene\\,0.2)", path.to_str().unwrap()).as_str()
+            format!("movie={},select=gt(scene\\,0.2)", path).as_str()
         ])
         .output()
         .map_err(FfProbeError::Io).unwrap();
 
+    let output = String::from_utf8(out.stdout).unwrap();
     if !out.status.success() {
+        println!("Failed to run {}.", cmd);
+        println!("{}", output);
         return vec![];
     }
-
-    let output = String::from_utf8(out.stdout).unwrap();
     return output.as_str()
         .lines()
         .filter(|l| time_re.is_match(l))
@@ -400,14 +400,19 @@ pub fn split_scene(index: usize, s: Scene) -> Option<Video>  {
 
 pub fn play_scene(scene: Scene) {
     let cmd = if cfg!(target_os = "windows") { "mpv.exe" } else { "mpv" };
+    let path = escape_path(&scene.file);
     let out = std::process::Command::new(cmd)
         .args([
             format!("--start={}", scene.start),
-            scene.file
+            path.clone()
         ])
         .stdin(Stdio::null())
         .output()
         .unwrap();
+
+    if !out.status.success() {
+        println!("Failed to start mpv for video: {}", path);
+    }
 }
 
 pub fn ocr_preprocess_img(path: String, ocr_settings: &OcrSettings) -> Option<String> {
@@ -496,15 +501,13 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
                 speller.train(&training_data);
 
                 return Some(text.trim().split(" ")
-                            .map(|w| w.replace(" ", ""))
+                            .map(|w| clean_title(w.to_string()))
                             .map(|w| if !w.is_empty() && alpha_re.is_match(&w) { speller.correct(&w) } else { w.to_string() })
-                            .map(|w| invalid_characters_re.replace_all(&w, "").to_string())
                             .intersperse(" ".to_string())
                             .collect());
             } else {
                 return Some(text.trim().split(" ")
-                            .map(|w| w.replace(" ", ""))
-                            .map(|w| invalid_characters_re.replace_all(&w, "").to_string())
+                            .map(|w| clean_title(w.to_string()))
                             .intersperse(" ".to_string())
                             .collect());
             }
@@ -565,6 +568,18 @@ pub fn get_cache_dir() -> PathBuf {
         Ok(d) => PathBuf::from(d).join(".cache"),
         Err(_) => AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap(),
     };
+}
+
+pub fn escape_path(path: &str) -> String {
+    path.to_string()
+        .replace("[","\\[")
+        .replace("]","\\]")
+}
+
+pub fn clean_title(title: String) -> String {
+    let multi_space_re = Regex::new(r"[ \t]{2,}").unwrap();
+    let invalid_characters_re = Regex::new(r"[^a-zA-Z0-9&\\(\\) -]").unwrap();
+    return invalid_characters_re.replace_all(&multi_space_re.replace_all(title.as_str(), " ").replace("/", "-"), "").to_string();
 }
 // ----------------------------------------------------------------------------
 // When compiling for web:
@@ -639,8 +654,8 @@ Random comments
         // actual probelms
         assert_eq!(1380, time_to_seconds("23:00"));
         assert_eq!(1380, time_to_seconds("23:00:00"));
-        assert_eq!(1380, time_to_seconds("1:13"));
-        assert_eq!(1380, time_to_seconds("1:18:10"));
+        assert_eq!(73, time_to_seconds("1:13"));
+        assert_eq!(4690, time_to_seconds("1:18:10"));
     }
 
     #[test]
@@ -652,4 +667,17 @@ Random comments
         assert_eq!("01:01:01".to_string(), seconds_to_time(3661));
     }
 
+    #[test]
+    fn test_clean_title() {
+        assert_eq!("A B".to_string(), clean_title("A  B".to_string()));
+        assert_eq!("A B".to_string(), clean_title("A   B".to_string()));
+        assert_eq!("A B".to_string(), clean_title("A    B".to_string()));
+
+        assert_eq!("A-B".to_string(), clean_title("A/B".to_string()));
+        assert_eq!("A-B-C".to_string(), clean_title("A/B/C".to_string()));
+
+        assert_eq!("AB".to_string(), clean_title("A'B".to_string()));
+        assert_eq!("AB".to_string(), clean_title("A*B".to_string()));
+        assert_eq!("A&B".to_string(), clean_title("A&B".to_string()));
+    }
 }
