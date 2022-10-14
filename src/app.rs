@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+use crate::GeneralSettings;
 use crate::all_scenes;
 use crate::app::egui::Vec2;
 use crate::extract_timestamps;
@@ -8,6 +9,7 @@ use crate::get_popular_creators;
 use crate::load_org;
 use crate::play_scene;
 use crate::save_org;
+use crate::save_md;
 use crate::save_playlist;
 use crate::scene_detect;
 use crate::scene_ocr_img_path;
@@ -55,7 +57,7 @@ pub struct App {
     use_title_combo: bool,
     candidate_urls: Vec<String>,
     scene_images: Vec<Vec<Option<egui::TextureId>>>,
-    step_in_secs: usize,
+    general_settings: GeneralSettings,
     ocr_settings: OcrSettings,
     busy: bool,
     total_tasks: f32,
@@ -86,6 +88,12 @@ pub enum Command {
         v_index: usize,
         s_index: usize,
         image: Option<egui::TextureId>,
+    },
+    ExportOrg {
+    },
+    ExportMarkdown {
+    },
+    ExportPlayList {
     },
     AddPendingTasks {
         tasks: usize,
@@ -143,7 +151,7 @@ impl Default for App {
             candidate_titles: vec![],
             candidate_urls: vec![],
             scene_images: vec![],
-            step_in_secs: 1,
+            general_settings: GeneralSettings::new(),
             ocr_settings: OcrSettings::new(),
             busy: true,
             total_tasks: 0.0,
@@ -314,7 +322,7 @@ impl epi::App for App {
             use_title_combo,
             candidate_urls,
             scene_images,
-            step_in_secs,
+            general_settings,
             ocr_settings,
             busy,
             completed_tasks,
@@ -349,7 +357,6 @@ impl epi::App for App {
                         *candidate_titles = vec![];
                         *candidate_urls = vec![];
                         *scene_images = vec![];
-                        *step_in_secs = 1;
                     }
                     if ui.button("Open").clicked() {
                         let dir = parent_dir(&file).unwrap_or_else(|| {
@@ -427,7 +434,34 @@ impl epi::App for App {
                         };
                     }
 
-                    if ui.button("Export playlist as").clicked() {
+                    if ui.button("Export as markdown").clicked() {
+                        let dir = parent_dir(&file).unwrap_or_else(|| {
+                            parent_dir(last_selected_file).unwrap_or("/".to_string())
+                        });
+                        let target = rfd::FileDialog::new()
+                            .add_filter("Markdown files", &["md"])
+                            .set_directory(dir)
+                            .save_file()
+                            .map(|f| {
+                                f.as_path()
+                                    .to_str()
+                                    .expect("Failed to get path from dialog.")
+                                    .to_string()
+                            });
+
+                        match target {
+                            Some(t) => {
+                                *last_selected_file = t.clone();
+                                let target_path = Path::new(&t);
+                                let target_file = File::create(target_path)
+                                    .expect("Failed to open file for saving!");
+                                save_md(instructional, target_file);
+                            }
+                            None => {}
+                        };
+                    }
+
+                    if ui.button("Export as playlist").clicked() {
                         let dir = parent_dir(&file).unwrap_or_else(|| {
                             parent_dir(last_selected_file).unwrap_or("/".to_string())
                         });
@@ -456,6 +490,7 @@ impl epi::App for App {
 
                     if ui.button("Split").clicked() {
                         let old = instructional.clone();
+                        let target = instructional.clone();
                         let sender = sender.clone();
                         instructional.videos = vec![];
                         *scene_images = Vec::new();
@@ -468,11 +503,19 @@ impl epi::App for App {
                                 .expect("Failed to send AddPendingTasks command!");
                             all_scenes.iter().enumerate().for_each(|(i, s)| {
                                 if let Some(v) = split_scene(i + 1, s.clone()) {
-                                    sender
-                                        .send(Command::AddVideo { video: v })
+                                    sender.send(Command::AddVideo { video: v })
                                         .expect("Failed to send AddVideo command!");
                                 }
                             });
+                            if general_settings.org_export_enabled {
+                                sender.send(Command::ExportOrg  {  });
+                            }
+                            if general_settings.md_export_enabled {
+                                sender.send(Command::ExportMarkdown  {  });
+                            }
+                            if general_settings.playlist_export_enabled {
+                                sender.send(Command::ExportPlayList {  });
+                            }
                         });
                     }
 
@@ -640,38 +683,58 @@ impl epi::App for App {
             ui.separator();
 
             egui::CollapsingHeader::new("Settings").id_source(Id::new("settings")).default_open(false).show(ui, |ui| { 
-                ui.horizontal(|ui| {
-                    ui.label("Step in seconds");
-                    ui.add(egui::Slider::new(step_in_secs, 1..=10)).on_hover_text("The number of seconds to use when offsetting scenes of this video.");
-                if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s) from all scenes", step_in_secs)).clicked() {
+                egui::CollapsingHeader::new("General Settings").id_source(Id::new("general")).default_open(true).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Step in seconds");
+                        ui.add(egui::Slider::new(&mut general_settings.step_in_secs, 1..=10)).on_hover_text("The number of seconds to use when offsetting scenes of this video.");
+                        if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s) from all scenes", general_settings.step_in_secs)).clicked() {
 
-                    for i in 0..instructional.videos.len() {
-                        for j in 0..instructional.videos[i].scenes.len() {
-                            instructional.videos[i].scenes[j].start-=step_in_secs.to_owned();
+                            for i in 0..instructional.videos.len() {
+                                for j in 0..instructional.videos[i].scenes.len() {
+                                    instructional.videos[i].scenes[j].start-=general_settings.step_in_secs.to_owned();
+                                }
+                                for j in 0..instructional.videos[i].scenes.len() {
+                                    sync_scene_start(&mut instructional.videos[i], j);
+                                    //We need to clone things that we pass to the thread.
+                                    sender.send(Command::AddPendingTasks{tasks: 1});
+                                    job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                }
+                            }
                         }
-                        for j in 0..instructional.videos[i].scenes.len() {
-                            sync_scene_start(&mut instructional.videos[i], j);
-                            //We need to clone things that we pass to the thread.
-                            sender.send(Command::AddPendingTasks{tasks: 1});
-                            job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
-                        }
-                    }
-                }
-                if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s) to all scenes", step_in_secs)).clicked() {
+                        if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s) to all scenes", general_settings.step_in_secs)).clicked() {
 
-                    for i in 0..instructional.videos.len() {
-                        for j in 0..instructional.videos[i].scenes.len() {
-                            instructional.videos[i].scenes[j].start+=step_in_secs.to_owned();
+                            for i in 0..instructional.videos.len() {
+                                for j in 0..instructional.videos[i].scenes.len() {
+                                    instructional.videos[i].scenes[j].start+=general_settings.step_in_secs.to_owned();
+                                }
+                                for j in 0..instructional.videos[i].scenes.len() {
+                                    sync_scene_start(&mut instructional.videos[i], j);
+                                    //We need to clone things that we pass to the thread.
+                                    let sender = sender.clone();
+                                    sender.send(Command::AddPendingTasks{tasks: 1});
+                                    job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                }
+                            }
                         }
-                        for j in 0..instructional.videos[i].scenes.len() {
-                            sync_scene_start(&mut instructional.videos[i], j);
-                            //We need to clone things that we pass to the thread.
-                            let sender = sender.clone();
-                            sender.send(Command::AddPendingTasks{tasks: 1});
-                            job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
-                        }
-                    }
-                }
+                    });
+                });
+
+                egui::CollapsingHeader::new("Export Settings").id_source(Id::new("export")).default_open(false).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Export org file name:");
+                        ui.add(egui::Checkbox::new(&mut general_settings.org_export_enabled, "Export org enabled"));
+                        ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.org_export_filename));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Export markdown file name:");
+                        ui.add(egui::Checkbox::new(&mut general_settings.playlist_export_enabled, "Export markdwon enabled"));
+                        ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.md_export_name));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Export playlist name:");
+                        ui.add(egui::Checkbox::new(&mut general_settings.playlist_export_enabled, "Export playlist enabled"));
+                        ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.playlist_export_name));
+                    });
                 });
 
                 egui::CollapsingHeader::new("OCR Settings").id_source(Id::new("ocr")).default_open(false).show(ui, |ui| {
@@ -779,9 +842,9 @@ impl epi::App for App {
 
                                     // Global video actions
                                     ui.horizontal(|ui| {
-                                        if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s) from all scenes", step_in_secs)).clicked() {
+                                        if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s) from all scenes", general_settings.step_in_secs)).clicked() {
                                             for j in 0..instructional.videos[i].scenes.len() {
-                                                instructional.videos[i].scenes[j].start-=step_in_secs.to_owned();
+                                                instructional.videos[i].scenes[j].start-=general_settings.step_in_secs.to_owned();
                                             }
                                             for j in 0..instructional.videos[i].scenes.len() {
                                                 sync_scene_start(&mut instructional.videos[i], j);
@@ -790,9 +853,9 @@ impl epi::App for App {
                                                 job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
                                             }
                                         }
-                                        if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s) to all scenes", step_in_secs)).clicked() {
+                                        if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s) to all scenes", general_settings.step_in_secs)).clicked() {
                                             for j in 0..instructional.videos[i].scenes.len() {
-                                                instructional.videos[i].scenes[j].start+=step_in_secs.to_owned();
+                                                instructional.videos[i].scenes[j].start+=general_settings.step_in_secs.to_owned();
                                             }
                                             for j in 0..instructional.videos[i].scenes.len() {
                                                 sync_scene_start(&mut instructional.videos[i], j);
@@ -859,12 +922,12 @@ impl epi::App for App {
                                                 ui.label(format!("Start: {}", seconds_to_time(instructional.videos[i].scenes[j].start)));
                                                 ui.horizontal(|ui| {
                                                     let mut refresh_needed = false;
-                                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s)", step_in_secs)).clicked() {
-                                                        instructional.videos[i].scenes[j].start-=step_in_secs.to_owned();
+                                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s)", general_settings.step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].start-=general_settings.step_in_secs.to_owned();
                                                         refresh_needed = true;
                                                     }
-                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s)", step_in_secs)).clicked() {
-                                                        instructional.videos[i].scenes[j].start+=step_in_secs.to_owned(); 
+                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s)", general_settings.step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].start+=general_settings.step_in_secs.to_owned();
                                                         sync_scene_start(&mut instructional.videos[i], j);
                                                         refresh_needed = true;
                                                     }
@@ -888,13 +951,13 @@ impl epi::App for App {
                                                 ui.label(format!("End: {}", seconds_to_time(instructional.videos[i].scenes[j].end)));
                                                 ui.horizontal(|ui| {
                                                    let mut refresh_needed = false;
-                                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s)", step_in_secs)).clicked() {
-                                                        instructional.videos[i].scenes[j].end-=step_in_secs.to_owned();
+                                                    if ui.add(egui::ImageButton::new(*icons.get("rewind-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Subtract {} second(s)", general_settings.step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].end-=general_settings.step_in_secs.to_owned();
                                                         sync_scene_end(&mut instructional.videos[i], j);
                                                         refresh_needed = true;
                                                     }
-                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s)", step_in_secs)).clicked() {
-                                                        instructional.videos[i].scenes[j].end+=step_in_secs.to_owned(); 
+                                                    if ui.add(egui::ImageButton::new(*icons.get("speed-line").unwrap(), (10.0, 10.0))).on_hover_text(format!("Add {} second(s)", general_settings.step_in_secs)).clicked() {
+                                                        instructional.videos[i].scenes[j].end+=general_settings.step_in_secs.to_owned();
                                                         sync_scene_end(&mut instructional.videos[i], j);
                                                         refresh_needed = true;
                                                     }
@@ -1017,6 +1080,15 @@ impl epi::App for App {
                                     *completed_tasks += 1.0;
                                     *progress =  *completed_tasks / *total_tasks;
                                     println!("Completed: {} of {}.", completed_tasks, total_tasks);
+                                },
+                                Command::ExportPlayList {  } => {
+                                    save_playlist_in_dir(instructional, general_settings.playlist_export_name.clone());
+                                },
+                                Command::ExportOrg {  } => {
+                                    save_org_in_dir(instructional, general_settings.org_export_filename.clone());
+                                },
+                                Command::ExportMarkdown {  } => {
+                                    save_md_in_dir(instructional, general_settings.org_export_filename.clone());
                                 }
                                 Command::AddPendingTasks {tasks} => {
                                     *total_tasks += tasks as f32;
@@ -1372,4 +1444,22 @@ fn get_icon(icon_name: &str) -> PathBuf {
             .join(icon_name),
         Err(_) => local_icons.join(icon_name),
     };
+}
+
+fn save_playlist_in_dir (instructional: &mut Instructional, playlist_file_name: String) {
+    let video = instructional.videos.first().expect("Failed to find videos in instructional!");
+    let target_file = PathBuf::from(&video.file).parent().expect("Failed to find part of file!").join(playlist_file_name);
+    save_playlist(instructional, File::create(target_file.into_os_string()).expect("Failed to create file."));
+}
+
+fn save_org_in_dir (instructional: &mut Instructional, index_file_name: String) {
+    let video = instructional.videos.first().expect("Failed to find videos in instructional!");
+    let target_file = PathBuf::from(&video.file).parent().expect("Failed to find part of file!").join(index_file_name);
+    save_org(instructional, File::create(target_file.into_os_string()).expect("Failed to create file."));
+}
+
+fn save_md_in_dir (instructional: &mut Instructional, index_file_name: String) {
+    let video = instructional.videos.first().expect("Failed to find videos in instructional!");
+    let target_file = PathBuf::from(&video.file).parent().expect("Failed to find part of file!").join(index_file_name);
+    save_md(instructional, File::create(target_file.into_os_string()).expect("Failed to create file."));
 }

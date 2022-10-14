@@ -54,6 +54,30 @@ pub struct Scene {
     start: usize,
     end: usize
 }
+#[derive(Debug, Clone)]
+pub struct GeneralSettings {
+    step_in_secs: usize,
+    org_export_enabled: bool,
+    org_export_filename: String,
+    md_export_enabled: bool,
+    md_export_name: String,
+    playlist_export_enabled: bool,
+    playlist_export_name: String
+}
+
+impl GeneralSettings {
+    fn new() -> Self {
+        GeneralSettings {
+            step_in_secs: 1,
+            org_export_enabled: true,
+            org_export_filename: "readme.org".to_string(),
+            md_export_enabled: true,
+            md_export_name: "readme.md".to_string(),
+            playlist_export_enabled: true,
+            playlist_export_name: "playlist.m3u".to_string()
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct OcrSettings {
@@ -234,8 +258,10 @@ pub fn save_playlist(instructional: &mut Instructional, out: File) {
     out.write_all(format!("#EXTM3U\n#EXT-X-VERSION:6\n").as_bytes()).expect("Unable to write playlist header!");
     instructional.videos.iter().for_each(|v| {
         v.scenes.iter().for_each(|s| {
-            out.write_all(format!("#EXTINF: {}, {}", s.start, s.title).as_bytes()).expect("Unable to write scene header!");
-            out.write_all(format!("{}", s.file).as_bytes()).expect("Unable to write scene file!");
+            let file_name = PathBuf::from(s.file.clone()).file_name().expect("Unable to get filename!").to_os_string().into_string().expect("Cannot convert into string");
+            out.write_all(format!("#EXTINF: {}, {}\n", s.start, s.title).as_bytes()).expect("Unable to write scene header!");
+            out.write_all(format!("{}", file_name).as_bytes()).expect("Unable to write scene file!");
+            out.write_all("\n".as_bytes()).expect("Unable to write separator line!");
         });
     });
 }
@@ -255,14 +281,32 @@ pub fn save_org(instructional: &mut Instructional, out: File) {
         }
         out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
         v.scenes.iter().for_each(|s| {
+            let file_name = PathBuf::from(s.file.clone()).file_name().expect("Unable to get filename!").to_os_string().into_string().expect("Cannot convert into string");
             s.labels.iter().fold(String::from(":video:"), |all, l| format!("{}{}", all.chars().take(all.len()-1).collect::<String>(), l));
             out.write_all(format!("*** {} :video:\n", clean_title(s.title.to_string())).as_bytes()).expect("Unable to write scene title!");
             out.write_all(":PROPERTIES:\n".as_bytes()).expect("Unable to write scene properties start!");
             out.write_all(format!(":INDEX: {}\n", s.index + 1).as_bytes()).expect("Unable to write scene index!");
-            out.write_all(format!(":FILE_OR_URL: {}\n", escape_path(&s.file)).as_bytes()).expect("Unable to write scene file or url!");
+            out.write_all(format!(":FILE_OR_URL: {}\n", file_name).as_bytes()).expect("Unable to write scene file or url!");
             out.write_all(format!(":START_TIMESTAMP: {}\n", s.start).as_bytes()).expect("Unable to write scene start timestamp!");
             out.write_all(format!(":END_TIMESTAMP: {}\n", s.end).as_bytes()).expect("Unable to write scene end timestamp!");
             out.write_all(":END:\n".as_bytes()).expect("Unable to write scene properties end!");
+            out.write_all("\n".as_bytes()).expect("Unable to write separator line!");
+        });
+        out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
+    });
+}
+
+pub fn save_md(instructional: &mut Instructional, out: File) {
+    let mut out = BufWriter::new(out);
+    instructional.videos.iter().for_each(|v| {
+        let has_multiple_scenes_per_video = instructional.videos.iter().filter(|v| v.scenes.len() > 1).count() > 0;
+        if has_multiple_scenes_per_video {
+            out.write_all(format!("# Volume {}\n", v.index + 1).as_bytes()).expect("Unable to write video entry!");
+        }
+        v.scenes.iter().for_each(|s| {
+            let file_name = PathBuf::from(s.file.clone()).file_name().expect("Unable to get filename!").to_os_string().into_string().expect("Cannot convert into string");
+            out.write_all(format!("## {}\n", clean_title(s.title.to_string())).as_bytes()).expect("Unable to write scene title!");
+            out.write_all(format!("![{}](){}\n", s.title, file_name).as_bytes()).expect("Unable to write scene file or url!");
             out.write_all("\n".as_bytes()).expect("Unable to write separator line!");
         });
         out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
