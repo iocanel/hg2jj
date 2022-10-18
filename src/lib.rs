@@ -638,6 +638,7 @@ pub fn get_cache_dir() -> PathBuf {
 
 pub fn escape_path(path: &str) -> String {
     path.to_string()
+        .replace("&","\\&")
         .replace("[","\\[")
         .replace("]","\\]")
 }
