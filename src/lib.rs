@@ -170,7 +170,7 @@ pub fn parse_org(content: String) -> Instructional {
 
     let volume_re = Regex::new(r"^\*+ Volume [0-9]+$").unwrap();
     let s_title_re = Regex::new(r"^\*+ ([a-zA-Z0-9'`\.,_ /&:-]+) (:[a-zA-Z0-9_-]+:)$").unwrap();
-    let start_timestamp_re = Regex::new(r"[ ]+:START_TIMESTAMP:[ ]+([0-9]+)").unwrap();
+    let start_timestamp_re = Regex::new(r":START_TIMESTAMP:[ ]+([0-9]+)").unwrap();
     let end_timestamp_re = Regex::new(r":END_TIMESTAMP:[ ]*([0-9]+)").unwrap();
     let end_re = Regex::new(r":END:").unwrap();
     let file_re = Regex::new(r":FILE_OR_URL:(.+)$").unwrap();
@@ -186,8 +186,8 @@ pub fn parse_org(content: String) -> Instructional {
     let mut s_title = String::new();
     let mut file = String::new();
     let mut labels: Vec<String> = Vec::new();
-    let mut start: usize = 0;
-    let mut end: usize = 0;
+    let mut start: Option<usize> = None;
+    let mut end: Option<usize> = None;
 
     for line in lines {
         if creator_re.is_match(&line) {
@@ -206,29 +206,11 @@ pub fn parse_org(content: String) -> Instructional {
         }
 
         if volume_re.is_match(&line) {
-            start = 0;
-            end = 0;
+            start = None;
+            end = None;
             index = 0;
-        }
-
-        //When we reach properties end we push the scene
-        if end_re.is_match(&line) {
-            if !s_title.is_empty() {
-                scenes.push(Scene {
-                    index,
-                    title: s_title,
-                    labels,
-                    file,
-                    start,
-                    end});
-
-                s_title = String::new();
-                index += 1; 
-                file = String::new();
-                labels = vec![];
-                start = end;
-                end = 0;
-            }
+            s_title = String::new();
+            file = String::new();
         }
 
         if s_title_re.is_match(&line) {
@@ -237,21 +219,36 @@ pub fn parse_org(content: String) -> Instructional {
         }
         if start_timestamp_re.is_match(&line) {
             let cap = start_timestamp_re.captures(&line).expect("Failed to match regex!");
-            start = cap.get(1)
-                .map(|m| m.as_str().parse::<usize>().expect("Failed to parse start timestamp!"))
-                .expect("Failed to capture start timestamp!");
+            start = cap.get(1).map(|m| m.as_str().parse::<usize>().expect("Failed to parse start timestamp!"));
         }
         if end_timestamp_re.is_match(&line) {
             let cap = end_timestamp_re.captures(&line).expect("Failed to match regex!");
-            end = cap.get(1)
-                .map(|m| m.as_str().parse::<usize>().expect("Failed to parse end timestamp!"))
-                .expect("Failed to capture end timestamp!");
+            end = cap.get(1).map(|m| m.as_str().parse::<usize>().expect("Failed to parse end timestamp!"));
         }
         if file_re.is_match(&line) {
             let cap = file_re.captures(&line).expect("Failed to match regex!");
             file = cap.get(1)
                 .map(|m| m.as_str().trim().to_string())
                 .expect("Failed to capture end file!");
+        }
+
+        //When we reach properties end we push the scene
+        if start.is_some() && end.is_some() && !s_title.is_empty() && !file.is_empty() {
+                scenes.push(Scene {
+                    index,
+                    title: s_title,
+                    labels,
+                    file,
+                    start: start.unwrap_or(0),
+                    end: end.unwrap_or(0)});
+
+                s_title = String::new();
+                file = String::new();
+                index += 1;
+                file = String::new();
+                labels = vec![];
+                start = None;
+                end = None;
         }
     }
 
