@@ -92,10 +92,13 @@ pub enum Command {
         image: Option<egui::TextureId>,
     },
     ExportOrg {
+        filename: String,
     },
     ExportMarkdown {
+        filename: String,
     },
     ExportPlayList {
+        filename: String,
     },
     AddPendingTasks {
         tasks: usize,
@@ -496,6 +499,15 @@ impl epi::App for App {
                         let old = instructional.clone();
                         let target = instructional.clone();
                         let sender = sender.clone();
+
+                        let org_export_enabled = general_settings.org_export_enabled.clone();
+                        let md_export_enabled = general_settings.md_export_enabled.clone();
+                        let playlist_export_enabled = general_settings.playlist_export_enabled.clone();
+
+                        let org_export_filename = general_settings.org_export_filename.clone();
+                        let md_export_filename = general_settings.md_export_filename.clone();
+                        let playlist_export_filename = general_settings.playlist_export_filename.clone();
+
                         instructional.videos = vec![];
                         *scene_images = Vec::new();
                         std::thread::spawn(move || {
@@ -511,14 +523,14 @@ impl epi::App for App {
                                         .expect("Failed to send AddVideo command!");
                                 }
                             });
-                            if general_settings.org_export_enabled {
-                                sender.send(Command::ExportOrg  {  });
+                            if org_export_enabled {
+                                sender.send(Command::ExportOrg  { filename: org_export_filename.to_string()  });
                             }
-                            if general_settings.md_export_enabled {
-                                sender.send(Command::ExportMarkdown  {  });
+                            if md_export_enabled {
+                                sender.send(Command::ExportMarkdown  { filename: md_export_filename.to_string() });
                             }
-                            if general_settings.playlist_export_enabled {
-                                sender.send(Command::ExportPlayList {  });
+                            if playlist_export_enabled {
+                                sender.send(Command::ExportPlayList { filename: playlist_export_filename.to_string() });
                             }
                         });
                     }
@@ -732,12 +744,12 @@ impl epi::App for App {
                     ui.horizontal(|ui| {
                         ui.label("Export markdown file name:");
                         ui.add(egui::Checkbox::new(&mut general_settings.playlist_export_enabled, "Export markdwon enabled"));
-                        ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.md_export_name));
+                        ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.md_export_filename));
                     });
                     ui.horizontal(|ui| {
                         ui.label("Export playlist name:");
                         ui.add(egui::Checkbox::new(&mut general_settings.playlist_export_enabled, "Export playlist enabled"));
-                        ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.playlist_export_name));
+                        ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.playlist_export_filename));
                     });
                 });
                 egui::CollapsingHeader::new("Detection Settings").id_source(Id::new("detection")).default_open(false).show(ui, |ui| {
@@ -1091,14 +1103,14 @@ impl epi::App for App {
                                     *progress =  *completed_tasks / *total_tasks;
                                     println!("Completed: {} of {}.", completed_tasks, total_tasks);
                                 },
-                                Command::ExportPlayList {  } => {
-                                    save_playlist_in_dir(instructional, general_settings.playlist_export_name.clone());
+                                Command::ExportPlayList {filename} => {
+                                    save_playlist_in_dir(instructional, filename);
                                 },
-                                Command::ExportOrg {  } => {
-                                    save_org_in_dir(instructional, general_settings.org_export_filename.clone());
+                                Command::ExportOrg {filename} => {
+                                    save_org_in_dir(instructional, filename);
                                 },
-                                Command::ExportMarkdown {  } => {
-                                    save_md_in_dir(instructional, general_settings.org_export_filename.clone());
+                                Command::ExportMarkdown {filename} => {
+                                    save_md_in_dir(instructional, filename);
                                 }
                                 Command::AddPendingTasks {tasks} => {
                                     *total_tasks += tasks as f32;
@@ -1138,7 +1150,7 @@ impl epi::App for App {
                                                         Left(l) => (l, (0 as usize)),
                                                     }
                                                 })
-                                                .filter(|(t, n)| (*t as i32 - *n as i32).abs() > 10) // filter very short scenes
+                                                .filter(|(t, n)| (*t as i32 - *n as i32).abs() > detection_settings.minimum_length) // filter very short scenes
                                                 .enumerate() // (i, (t, nt))
                                                 .map(| (si, (t, nt)) | (si, Scene {index: si, title: format!("Scene {}: {} - {}", si+1, t, nt), labels: vec![], file: file.clone(), start: t, end: nt}))
                                                 .for_each(|(s_index, scene)| {

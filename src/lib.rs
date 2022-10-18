@@ -82,9 +82,9 @@ pub struct GeneralSettings {
     org_export_enabled: bool,
     org_export_filename: String,
     md_export_enabled: bool,
-    md_export_name: String,
+    md_export_filename: String,
     playlist_export_enabled: bool,
-    playlist_export_name: String
+    playlist_export_filename: String
 }
 
 impl GeneralSettings {
@@ -94,11 +94,18 @@ impl GeneralSettings {
             org_export_enabled: true,
             org_export_filename: "readme.org".to_string(),
             md_export_enabled: true,
-            md_export_name: "readme.md".to_string(),
+            md_export_filename: "readme.md".to_string(),
             playlist_export_enabled: true,
-            playlist_export_name: "playlist.m3u".to_string()
+            playlist_export_filename: "playlist.m3u".to_string()
         }
     }
+}
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub enum Case {
+    Upper,
+    Lower,
+    CapitalizeFirst,
 }
 
 #[derive(Debug, Clone)]
