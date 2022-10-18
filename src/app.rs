@@ -1023,34 +1023,41 @@ impl epi::App for App {
                                             }
 
                                             if scene_images.len() > i && scene_images[i].len() > j {
+                                                let mut size = egui::Vec2::new(192.0,102.0);
+                                                size *= (ui.available_width() / size.x).min(1.0);
                                                 match scene_images[i][j] {
                                                     Some(img) => {
-                                                        let mut size = egui::Vec2::new(192.0,102.0);
-                                                        size *= (ui.available_width() / size.x).min(1.0);
                                                         if ui.add(egui::ImageButton::new(img, size)).clicked() {
                                                             //We need to clone things that we pass to the thread.
                                                             sender.send(Command::AddPendingTasks{tasks: 1});
                                                             job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
                                                         } 
-                                                        ui.separator();
-                                                        ui.vertical(|ui| {
-                                                            if ui.add(egui::ImageButton::new(*icons.get("play-line").unwrap(), (10.0, 10.0))).on_hover_text("Play Video").clicked() {
-                                                                let scene = instructional.videos[i].scenes[j].clone();
-                                                                std::thread::spawn(move || {
-                                                                    play_scene(scene);
-                                                                });
-                                                            }
-                                                            if ui.add(egui::ImageButton::new(*icons.get("character-recognition-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scene title using OCR").clicked() {
-                                                                let scene = &instructional.videos[i].scenes[j];
-                                                                if let Some(text) = scene_text_with_settings(instructional.creator.to_string(), instructional.title.to_string(), scene, &ocr_settings) {
-                                                                    job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_ocr_image}).expect("Failed to send CreateThumbnail command!");
-                                                                    instructional.videos[i].scenes[j].title =  text;
-                                                                }
-                                                            }
-                                                        });
                                                     },
-                                                    None => {},
+                                                    None => {
+                                                        if ui.add(egui::ImageButton::new(*icons.get("search-line").unwrap(), size)).clicked() {
+                                                            //We need to clone things that we pass to the thread.
+                                                            sender.send(Command::AddPendingTasks{tasks: 1});
+                                                            job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_scene_image}).expect("Failed to send CreateThumbnail command!");
+                                                        }
+
+                                                    },
                                                 }
+                                                ui.separator();
+                                                ui.vertical(|ui| {
+                                                    if ui.add(egui::ImageButton::new(*icons.get("play-line").unwrap(), (10.0, 10.0))).on_hover_text("Play Video").clicked() {
+                                                        let scene = instructional.videos[i].scenes[j].clone();
+                                                        std::thread::spawn(move || {
+                                                            play_scene(scene);
+                                                        });
+                                                    }
+                                                    if ui.add(egui::ImageButton::new(*icons.get("character-recognition-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scene title using OCR").clicked() {
+                                                        let scene = &instructional.videos[i].scenes[j];
+                                                        if let Some(text) = scene_text_with_settings(instructional.creator.to_string(), instructional.title.to_string(), scene, &ocr_settings) {
+                                                            job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_ocr_image}).expect("Failed to send CreateThumbnail command!");
+                                                            instructional.videos[i].scenes[j].title =  text;
+                                                        }
+                                                    }
+                                                });
                                             }
                                         });
                                         //end of drop target
