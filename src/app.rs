@@ -837,7 +837,7 @@ impl epi::App for App {
                                                         let last_index: usize = instructional.videos[i].scenes.len() - 1;
                                                         instructional.videos[i].scenes[last_index].end = duration;
                                                     }
-                                                    *scene_images = allocate_scene_images(frame, &instructional.videos);
+                                                    *scene_images = reallocate_scene_images(frame, &instructional.videos, i, scene_images.clone());
                                                     let pending = sender.clone();
                                                     let tasks = instructional.videos[i].scenes.len();
                                                     pending.send(Command::AddPendingTasks{tasks}).expect("Failed to send AddPendingTasks command!");
@@ -1261,6 +1261,29 @@ fn create_scene_image(
 ) -> Option<egui::TextureId> {
     let img = scene_to_image(creator, title, s);
     img.map(|i| load_texture_id(&frame, Path::new(&i)).unwrap_or_default())
+}
+
+fn reallocate_scene_images(frame: &epi::Frame, videos: &Vec<Video>, v_index: usize, scene_images: Vec<Vec<Option<TextureId>>>) -> Vec<Vec<Option<egui::TextureId>>> {
+    let mut result: Vec<Vec<Option<TextureId>>> = scene_images.clone();
+    let video_scenes = videos[v_index].scenes.iter().map(|s| None).collect::<Vec<Option<egui::TextureId>>>();
+    if v_index < scene_images.len() {
+        result[v_index] = video_scenes;
+        return result;
+    }
+    if v_index == scene_images.len() {
+        result.insert(v_index, video_scenes);
+        return result;
+    }
+
+    videos
+        .iter()
+        .map(|v| {
+            v.scenes
+                .iter()
+                .map(|s| None)
+                .collect::<Vec<Option<egui::TextureId>>>()
+        })
+        .collect::<Vec<Vec<Option<egui::TextureId>>>>()
 }
 
 fn allocate_scene_images(
