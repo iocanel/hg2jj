@@ -859,8 +859,16 @@ impl epi::App for App {
                                             let sender = sender.clone();
                                             job_sender.send(Job::DetectScenes{v_index: i, file: Path::new(&file).as_os_str().to_str().unwrap().to_string()}).expect("Failed to send Detect scenes command");
                                         }
-                                    });
 
+                                        if ui.add(egui::ImageButton::new(*icons.get("add-line").unwrap(), (10.0, 10.0))).on_hover_text("Add scene").clicked() {
+                                            let s_index = instructional.videos[i].scenes.len() + 1;
+                                            let previous_end = if s_index > 1 { instructional.videos[i].scenes[s_index - 1].end } else { 0 };
+                                            let end = video_duration(instructional.videos[i].file.to_string());
+                                            let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[i].file.clone(), labels: vec![], start: previous_end, end: end };
+                                            sender.send(Command::AddScene{v_index: i, scene: scene.clone() }).expect("Failed to send AddScene command");
+                                            sender.send(Command::UpdateThumbnail{v_index: i, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
+                                        }
+                                    });
 
                                     // Global video actions
                                     ui.horizontal(|ui| {
