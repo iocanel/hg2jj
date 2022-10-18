@@ -1015,6 +1015,13 @@ impl epi::App for App {
                                             });
 
                                             ui.separator();
+                                            if scene_images.len() == i {
+                                                scene_images.insert(i, vec![]);
+                                            }
+                                            if scene_images.len() > i && scene_images[i].len() == j {
+                                                scene_images[i].insert(j, None);
+                                            }
+
                                             if scene_images.len() > i && scene_images[i].len() > j {
                                                 match scene_images[i][j] {
                                                     Some(img) => {
