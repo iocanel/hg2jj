@@ -54,6 +54,28 @@ pub struct Scene {
     start: usize,
     end: usize
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct DetectionSettings {
+    threshold: f32,
+    minimum_length: i32
+}
+
+impl DetectionSettings {
+    fn new() -> Self {
+        DetectionSettings {
+            threshold: 0.2,
+            minimum_length: 10
+        }
+    }
+}
+
+impl Default for DetectionSettings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GeneralSettings {
     step_in_secs: usize,
@@ -313,7 +335,7 @@ pub fn save_md(instructional: &mut Instructional, out: File) {
     });
 }
 
-pub fn scene_detect(path: String) -> Vec<(usize, f32)> {
+pub fn scene_detect(path: String, settings: DetectionSettings) -> Vec<(usize, f32)> {
     let path = escape_path(path.as_str());
     let time_re = Regex::new(r".*best_effort_timestamp_time=([0-9\.]+).*scene_score=([0-9\.]+)").expect("Failed to define regular expression for timestamp in ffprobe output!");
     let cmd = if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" };
@@ -329,7 +351,7 @@ pub fn scene_detect(path: String) -> Vec<(usize, f32)> {
             "compact=p=0",
             "-f",
             "lavfi",
-            format!("movie={},select=gt(scene\\,0.2)", path).as_str()
+            format!("movie={},select=gt(scene\\,{:.1})", path, settings.threshold).as_str()
         ])
         .output()
         .map_err(FfProbeError::Io).unwrap();

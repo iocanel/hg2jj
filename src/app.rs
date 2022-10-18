@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+use crate::DetectionSettings;
 use crate::GeneralSettings;
 use crate::all_scenes;
 use crate::app::egui::Vec2;
@@ -59,6 +60,7 @@ pub struct App {
     scene_images: Vec<Vec<Option<egui::TextureId>>>,
     general_settings: GeneralSettings,
     ocr_settings: OcrSettings,
+    detection_settings: DetectionSettings,
     busy: bool,
     total_tasks: f32,
     completed_tasks: f32,
@@ -153,6 +155,7 @@ impl Default for App {
             scene_images: vec![],
             general_settings: GeneralSettings::new(),
             ocr_settings: OcrSettings::new(),
+            detection_settings: DetectionSettings::new(),
             busy: true,
             total_tasks: 0.0,
             completed_tasks: 0.0,
@@ -324,6 +327,7 @@ impl epi::App for App {
             scene_images,
             general_settings,
             ocr_settings,
+            detection_settings,
             busy,
             completed_tasks,
             total_tasks,
@@ -736,6 +740,12 @@ impl epi::App for App {
                         ui.add_sized(Vec2::new(100.0, ui.available_size().y) , egui::TextEdit::singleline(&mut general_settings.playlist_export_name));
                     });
                 });
+                egui::CollapsingHeader::new("Detection Settings").id_source(Id::new("detection")).default_open(false).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Slider::new(&mut detection_settings.threshold, 0.0..=1.0).text("Scene detection threshold")).on_hover_text("What percentage of changes pixels suggestes a scene change?");
+                        ui.add(egui::Slider::new(&mut detection_settings.minimum_length, 0..=3600).text("Minimum scene length")).on_hover_text("What is the minimum expected scene length? Shorter scenes will be ignored!");
+                    });
+                });
 
                 egui::CollapsingHeader::new("OCR Settings").id_source(Id::new("ocr")).default_open(false).show(ui, |ui| {
                     ui.add(egui::Checkbox::new(&mut ocr_settings.grayscale, "Grayscle"));
@@ -1103,15 +1113,20 @@ impl epi::App for App {
                             let frame = frame.clone();
                             let instructional = instructional.clone();
                             let sender = sender.clone();
+                            let detection_settings = detection_settings.clone();
                             let chunk_jobs = chunk.collect::<Vec<Job>>();
                             std::thread::spawn(move || {
                                 chunk_jobs.into_iter().for_each(|job| {
                                     match job {
                                         Job::DetectScenes {v_index, file } => {
-                                            let timestamps_with_scores: Vec<(usize, f32)> = scene_detect(file.clone());
+                                            println!("Detecting scenes for: {}", file.clone());
+                                            let timestamps_with_scores: Vec<(usize, f32)> = scene_detect(file.clone(), detection_settings);
                                             let timestamps = timestamps_with_scores.into_iter()
                                                 .map(|(t, s)| t)
                                                 .fold(vec![0], |mut v, i| {v.push(i); v});
+
+                                            println!("Detected {} scenes.", timestamps.len());
+                                            timestamps.iter().for_each(|t| println!("\tTimestamp: {}", t));
 
                                             timestamps.to_vec() //t
                                                 .into_iter()
