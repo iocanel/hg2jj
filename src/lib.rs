@@ -132,7 +132,9 @@ pub struct OcrSettings {
     dilate_iterations: i32,
 
     invert: bool,
-    spellcheking: bool
+    spellcheking: bool,
+    case: Case
+
 }
 impl OcrSettings {
     fn new() -> Self {
@@ -154,7 +156,8 @@ impl OcrSettings {
             dilate: true,
             dilate_kernel_size:3,
             dilate_iterations:1,
-            spellcheking: true
+            spellcheking: true,
+            case: Case::CapitalizeFirst
         }
     }
 }
@@ -573,11 +576,13 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
                 return Some(text.trim().split(" ")
                             .map(|w| clean_title(w.to_string()))
                             .map(|w| if !w.is_empty() && alpha_re.is_match(&w) { speller.correct(&w) } else { w.to_string() })
+                            .map(|w| apply_case(w, ocr_settings.case))
                             .intersperse(" ".to_string())
                             .collect());
             } else {
                 return Some(text.trim().split(" ")
                             .map(|w| clean_title(w.to_string()))
+                            .map(|w| apply_case(w, ocr_settings.case))
                             .intersperse(" ".to_string())
                             .collect());
             }
@@ -588,6 +593,18 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
 
 pub fn scene_text(creator: String, title: String, scene: &Scene) -> Option<String> {
     scene_text_with_settings(creator, title, scene, &OcrSettings::new())
+}
+
+fn apply_case(s: String, case: Case) -> String {
+    return match case {
+       Case::Lower => s.to_lowercase().to_string(),
+       Case::Upper => s.to_uppercase().to_string(),
+       Case::CapitalizeFirst => capitalize_first(s)
+    }
+}
+
+fn capitalize_first(s: String) -> String {
+   return s.chars().enumerate().map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
 }
 
 pub fn video_duration(p: String) -> usize {

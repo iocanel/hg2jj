@@ -795,6 +795,11 @@ impl epi::App for App {
                         ui.add(egui::Slider::new(&mut ocr_settings.dilate_iterations, 1..=5)).on_hover_text("Iterations");
                     });
                     ui.add(egui::Checkbox::new(&mut ocr_settings.spellcheking, "Spell check"));
+                    egui::ComboBox::from_label( "Character case").selected_text(format!("{:?}", ocr_settings.case)).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut ocr_settings.case, crate::Case::CapitalizeFirst, "Capitalize First");
+                        ui.selectable_value(&mut ocr_settings.case, crate::Case::Upper, "Upper");
+                        ui.selectable_value(&mut ocr_settings.case, crate::Case::Lower, "Lower");
+                    });
                 });
             });
 
