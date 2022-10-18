@@ -407,7 +407,7 @@ impl epi::App for App {
                     };
                     if !&file.is_empty() && ui.button("Save").clicked() {
                         match File::create(&file) {
-                            Ok(f) => save_org(instructional, f),
+                            Ok(f) => save_org(instructional, f, true),
                             Err(_) => {}
                         };
                     }
@@ -432,7 +432,7 @@ impl epi::App for App {
                                 let target_path = Path::new(&t);
                                 let target_file = File::create(target_path)
                                     .expect("Failed to open file for saving!");
-                                save_org(instructional, target_file);
+                                save_org(instructional, target_file, true);
                             }
                             None => {}
                         };
@@ -1470,7 +1470,7 @@ fn save_playlist_in_dir (instructional: &mut Instructional, playlist_file_name: 
 fn save_org_in_dir (instructional: &mut Instructional, index_file_name: String) {
     let video = instructional.videos.first().expect("Failed to find videos in instructional!");
     let target_file = PathBuf::from(&video.file).parent().expect("Failed to find part of file!").join(index_file_name);
-    save_org(instructional, File::create(target_file.into_os_string()).expect("Failed to create file."));
+    save_org(instructional, File::create(target_file.into_os_string()).expect("Failed to create file."), false);
 }
 
 fn save_md_in_dir (instructional: &mut Instructional, index_file_name: String) {

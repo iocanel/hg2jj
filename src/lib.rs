@@ -288,7 +288,7 @@ pub fn save_playlist(instructional: &mut Instructional, out: File) {
     });
 }
 
-pub fn save_org(instructional: &mut Instructional, out: File) {
+pub fn save_org(instructional: &mut Instructional, out: File, absolute: bool) {
     let mut out = BufWriter::new(out);
     out.write_all(format!("#+creator: {}\n", instructional.creator).as_bytes()).expect("Unable to write creator!");
     out.write_all(format!("#+title: {}\n", clean_title(instructional.title.to_string())).as_bytes()).expect("Unable to write title!");
@@ -303,12 +303,12 @@ pub fn save_org(instructional: &mut Instructional, out: File) {
         }
         out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
         v.scenes.iter().for_each(|s| {
-            let file_name = PathBuf::from(s.file.clone()).file_name().expect("Unable to get filename!").to_os_string().into_string().expect("Cannot convert into string");
+            let file_or_url = if absolute { s.file.clone() } else { PathBuf::from(s.file.clone()).file_name().expect("Unable to get filename!").to_os_string().into_string().expect("Cannot convert into string") };
             s.labels.iter().fold(String::from(":video:"), |all, l| format!("{}{}", all.chars().take(all.len()-1).collect::<String>(), l));
             out.write_all(format!("*** {} :video:\n", clean_title(s.title.to_string())).as_bytes()).expect("Unable to write scene title!");
             out.write_all(":PROPERTIES:\n".as_bytes()).expect("Unable to write scene properties start!");
             out.write_all(format!(":INDEX: {}\n", s.index + 1).as_bytes()).expect("Unable to write scene index!");
-            out.write_all(format!(":FILE_OR_URL: {}\n", file_name).as_bytes()).expect("Unable to write scene file or url!");
+            out.write_all(format!(":FILE_OR_URL: {}\n", file_or_url).as_bytes()).expect("Unable to write scene file or url!");
             out.write_all(format!(":START_TIMESTAMP: {}\n", s.start).as_bytes()).expect("Unable to write scene start timestamp!");
             out.write_all(format!(":END_TIMESTAMP: {}\n", s.end).as_bytes()).expect("Unable to write scene end timestamp!");
             out.write_all(":END:\n".as_bytes()).expect("Unable to write scene properties end!");
