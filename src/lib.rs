@@ -335,7 +335,7 @@ pub fn save_md(instructional: &mut Instructional, out: File) {
         v.scenes.iter().for_each(|s| {
             let file_name = PathBuf::from(s.file.clone()).file_name().expect("Unable to get filename!").to_os_string().into_string().expect("Cannot convert into string");
             out.write_all(format!("## {}\n", clean_title(s.title.to_string())).as_bytes()).expect("Unable to write scene title!");
-            out.write_all(format!("![{}](){}\n", s.title, file_name).as_bytes()).expect("Unable to write scene file or url!");
+            out.write_all(format!("![{}]({})\n", s.title, file_name).as_bytes()).expect("Unable to write scene file or url!");
             out.write_all("\n".as_bytes()).expect("Unable to write separator line!");
         });
         out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
