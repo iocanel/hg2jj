@@ -570,7 +570,8 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
                     letters: "abcdefghijklmnopqrstuvwxyz".to_string(),
                     n_words: HashMap::new()
                 };
-                let training_data = std::fs::read_to_string("assets/dict/rgjj.txt").expect("Failed to read spellchecking dictionary");
+                let dict_file =  get_dict("rgjj.txt");
+                let training_data = std::fs::read_to_string(dict_file).expect("Failed to read spellchecking dictionary");
                 speller.train(&training_data);
 
                 return Some(text.trim().split(" ")
@@ -654,6 +655,24 @@ pub fn get_cache_dir() -> PathBuf {
     return match env::var("HG2JJ_DIR") {
         Ok(d) => PathBuf::from(d).join(".cache"),
         Err(_) => AppDirs::new(Some("hg2jj"), false).map(|d| d.cache_dir).unwrap(),
+    };
+}
+
+fn get_dict(dict_name: &str) -> PathBuf {
+    let local_dicts = PathBuf::new()
+        .join(env::current_dir().unwrap())
+        .join("assets")
+        .join("dict");
+    if local_dicts.exists() {
+        return local_dicts.join(dict_name);
+    }
+
+    return match env::var("HG2JJ_DIR") {
+        Ok(d) => PathBuf::from(d)
+            .join("assets")
+            .join("dict")
+            .join(dict_name),
+        Err(_) => local_dicts.join(dict_name),
     };
 }
 
