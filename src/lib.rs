@@ -392,7 +392,7 @@ pub fn scene_img_path(creator: String, title: String, scene: &Scene) -> Option<P
 pub fn scene_ocr_img_path(creator: String, title: String, scene: &Scene) -> Option<PathBuf> {
     let path = Path::new(&scene.file);
     let file_name = path.file_name()?;
-    let instructional_dir = get_cache_dir().join("instructionals").join(creator).join(title);
+    let instructional_dir = PathBuf::from(escape_path(get_cache_dir().join("instructionals").join(creator).join(title).as_path().as_os_str().to_str().expect("Failed to find instructional cache dir.")));
     std::fs::create_dir_all(&instructional_dir).expect("Failed to create instructional directory!");
     let mut img_filename = Path::new(file_name).file_stem()?.to_str()?.to_string();
     img_filename.push_str("-");
