@@ -84,7 +84,8 @@ pub struct GeneralSettings {
     md_export_enabled: bool,
     md_export_filename: String,
     playlist_export_enabled: bool,
-    playlist_export_filename: String
+    playlist_export_filename: String,
+    case: Case
 }
 
 impl GeneralSettings {
@@ -96,7 +97,8 @@ impl GeneralSettings {
             md_export_enabled: true,
             md_export_filename: "readme.md".to_string(),
             playlist_export_enabled: true,
-            playlist_export_filename: "playlist.m3u".to_string()
+            playlist_export_filename: "playlist.m3u".to_string(),
+            case: Case::CapitalizeFirst
         }
     }
 }
@@ -132,9 +134,7 @@ pub struct OcrSettings {
     dilate_iterations: i32,
 
     invert: bool,
-    spellcheking: bool,
-    case: Case
-
+    spellcheking: bool
 }
 impl OcrSettings {
     fn new() -> Self {
@@ -157,7 +157,6 @@ impl OcrSettings {
             dilate_kernel_size:3,
             dilate_iterations:1,
             spellcheking: true,
-            case: Case::CapitalizeFirst
         }
     }
 }
@@ -552,7 +551,7 @@ pub fn ocr_preprocess(src_img: Mat, dst_img: &mut Mat, settings: &OcrSettings) {
     }
 }
 
-pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, ocr_settings: &OcrSettings) -> Option<String> {
+pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, general_settings: &GeneralSettings, ocr_settings: &OcrSettings) -> Option<String> {
     if let Some(img_file) = scene_to_image(creator, title, scene) {
         if let Some(ocr_file) = ocr_preprocess_img(img_file, ocr_settings) {
             let tesseract =  Tesseract::new_with_oem(None, Some("eng"), OcrEngineMode::LstmOnly).expect("Failed to initialize tesseract!");
@@ -577,13 +576,13 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
                 return Some(text.trim().split(" ")
                             .map(|w| clean_title(w.to_string()))
                             .map(|w| if !w.is_empty() && alpha_re.is_match(&w) { speller.correct(&w) } else { w.to_string() })
-                            .map(|w| apply_case(w, ocr_settings.case))
+                            .map(|w| apply_case(w, general_settings.case))
                             .intersperse(" ".to_string())
                             .collect());
             } else {
                 return Some(text.trim().split(" ")
                             .map(|w| clean_title(w.to_string()))
-                            .map(|w| apply_case(w, ocr_settings.case))
+                            .map(|w| apply_case(w, general_settings.case))
                             .intersperse(" ".to_string())
                             .collect());
             }
@@ -593,19 +592,24 @@ pub fn scene_text_with_settings(creator: String, title: String, scene: &Scene, o
 }
 
 pub fn scene_text(creator: String, title: String, scene: &Scene) -> Option<String> {
-    scene_text_with_settings(creator, title, scene, &OcrSettings::new())
+    scene_text_with_settings(creator, title, scene, &GeneralSettings::new(), &OcrSettings::new())
 }
 
 fn apply_case(s: String, case: Case) -> String {
     return match case {
        Case::Lower => s.to_lowercase().to_string(),
        Case::Upper => s.to_uppercase().to_string(),
-       Case::CapitalizeFirst => capitalize_first(s)
+       Case::CapitalizeFirst => {
+            s.trim().split(" ").map(|w| capitalize_first(w.to_string()))
+                            .intersperse(" ".to_string())
+                            .collect()
+       }
     }
 }
 
 fn capitalize_first(s: String) -> String {
-   return s.chars().enumerate().map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
+   let first_letter_index: usize = s.chars().enumerate().find_or_first(|(i,c)| c.is_ascii_alphabetic()).map(|(i,c)| i).unwrap_or_default();
+   return s.chars().enumerate().map(|(i, c)| if i == first_letter_index { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
 }
 
 pub fn video_duration(p: String) -> usize {

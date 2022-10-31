@@ -4,6 +4,7 @@ use crate::DetectionSettings;
 use crate::GeneralSettings;
 use crate::all_scenes;
 use crate::app::egui::Vec2;
+use crate::apply_case;
 use crate::extract_timestamps;
 use crate::get_cached_creators;
 use crate::get_popular_creators;
@@ -733,6 +734,21 @@ impl epi::App for App {
                             }
                         }
                     });
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_label( "Character case").selected_text(format!("{:?}", general_settings.case)).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut general_settings.case, crate::Case::CapitalizeFirst, "Capitalize First");
+                            ui.selectable_value(&mut general_settings.case, crate::Case::Upper, "Upper");
+                            ui.selectable_value(&mut general_settings.case, crate::Case::Lower, "Lower");
+                        });
+                        if ui.add(egui::ImageButton::new(*icons.get("arrow-down").unwrap(), (10.0, 10.0))).on_hover_text("Apply case to all scenes").clicked() {
+
+                            for i in 0..instructional.videos.len() {
+                                for j in 0..instructional.videos[i].scenes.len() {
+                                    instructional.videos[i].scenes[j].title=apply_case(instructional.videos[i].scenes[j].title.to_string(), general_settings.case);
+                                }
+                            }
+                        }
+                    });
                 });
 
                 egui::CollapsingHeader::new("Export Settings").id_source(Id::new("export")).default_open(false).show(ui, |ui| {
@@ -795,11 +811,6 @@ impl epi::App for App {
                         ui.add(egui::Slider::new(&mut ocr_settings.dilate_iterations, 1..=5)).on_hover_text("Iterations");
                     });
                     ui.add(egui::Checkbox::new(&mut ocr_settings.spellcheking, "Spell check"));
-                    egui::ComboBox::from_label( "Character case").selected_text(format!("{:?}", ocr_settings.case)).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut ocr_settings.case, crate::Case::CapitalizeFirst, "Capitalize First");
-                        ui.selectable_value(&mut ocr_settings.case, crate::Case::Upper, "Upper");
-                        ui.selectable_value(&mut ocr_settings.case, crate::Case::Lower, "Lower");
-                    });
                 });
             });
 
@@ -1057,7 +1068,7 @@ impl epi::App for App {
                                                     }
                                                     if ui.add(egui::ImageButton::new(*icons.get("character-recognition-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scene title using OCR").clicked() {
                                                         let scene = &instructional.videos[i].scenes[j];
-                                                        if let Some(text) = scene_text_with_settings(instructional.creator.to_string(), instructional.title.to_string(), scene, &ocr_settings) {
+                                                        if let Some(text) = scene_text_with_settings(instructional.creator.to_string(), instructional.title.to_string(), scene, &general_settings, &ocr_settings) {
                                                             job_sender.send(Job::CreateThumbnail{ v_index: i, s_index: j, imageFn: create_ocr_image}).expect("Failed to send CreateThumbnail command!");
                                                             instructional.videos[i].scenes[j].title =  text;
                                                         }
