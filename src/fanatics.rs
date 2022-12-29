@@ -88,7 +88,7 @@ pub fn scrape_url(url: String) -> String {
 
 pub fn scrape_html(body: String) -> String {
     let html = Html::parse_document(&body);
-    let selector = &Selector::parse("section#contents table").expect("Error during the parsing using the given selector");
+    let selector = &Selector::parse("section table").expect("Error during the parsing using the given selector");
    
     //Get the content line by line
     let course_content = html.select(selector)
