@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 mod app;
 mod fanatics;
+mod mpvstate;
 use opencv::core::{bitwise_not, BORDER_CONSTANT, Size_, NORM_L1};
 use opencv::photo::{fast_nl_means_denoising_vec};
 use platform_dirs::AppDirs;
@@ -18,8 +19,10 @@ use std::fs::File;
 use std::io::prelude::*;
 use ffprobe::*;
 use itertools::Itertools;
+use mpvipc::Mpv;
 pub use app::App;
 pub use fanatics::*;
+pub use mpvstate::*;
 
 use opencv::{
     imgcodecs::*,
@@ -475,6 +478,7 @@ pub fn play_scene(scene: Scene) {
     let path = escape_path(&scene.file);
     let out = std::process::Command::new(cmd)
         .args([
+            format!("--input-ipc-server=/tmp/mpv.sock"),
             format!("--start={}", scene.start),
             path.clone()
         ])
@@ -485,6 +489,12 @@ pub fn play_scene(scene: Scene) {
     if !out.status.success() {
         println!("Failed to start mpv for video: {}", path);
     }
+}
+
+pub fn get_mpv_playback_time() -> String {
+    let mpv = Mpv::connect("mpv.socket").unwrap();
+    let playback_time:String = mpv.get_property("playback-time").unwrap();
+    return playback_time;
 }
 
 pub fn ocr_preprocess_img(path: String, ocr_settings: &OcrSettings) -> Option<String> {
@@ -653,6 +663,13 @@ pub fn time_to_seconds(time: &str) -> usize {
         .map(|(i, t)| (60 as u32).pow(i as u32) * t)
         .reduce(|a, b| a + b)
         .unwrap() as usize
+}
+
+pub fn get_data_dir() -> PathBuf {
+    return match env::var("HG2JJ_DIR") {
+        Ok(d) => PathBuf::from(d).join("data"),
+        Err(_) => AppDirs::new(Some("hg2jj"), false).map(|d| d.data_dir).unwrap(),
+    };
 }
 
 pub fn get_cache_dir() -> PathBuf {

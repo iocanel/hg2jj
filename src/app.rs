@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 use crate::DetectionSettings;
 use crate::GeneralSettings;
+use crate::MpvState;
 use crate::all_scenes;
 use crate::app::egui::Vec2;
 use crate::apply_case;
@@ -9,6 +10,7 @@ use crate::extract_timestamps;
 use crate::get_cached_creators;
 use crate::get_popular_creators;
 use crate::load_org;
+use crate::mpv_pause;
 use crate::play_scene;
 use crate::save_org;
 use crate::save_md;
@@ -22,12 +24,14 @@ use crate::search_product;
 use crate::seconds_to_time;
 use crate::split_scene;
 use crate::update_cache;
+use crate::update_mpv_state;
 use crate::video_duration;
 use crate::File;
 use crate::Instructional;
 use crate::OcrSettings;
 use crate::Scene;
 use crate::Video;
+use crate::watch_mpv;
 use eframe::{egui, epi};
 use egui::*;
 use itertools::EitherOrBoth::Both;
@@ -42,7 +46,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-
+use mpvipc::Event;
 static BLANK: &str = "";
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -62,6 +66,7 @@ pub struct App {
     general_settings: GeneralSettings,
     ocr_settings: OcrSettings,
     detection_settings: DetectionSettings,
+    mpv_state: MpvState,
     busy: bool,
     total_tasks: f32,
     completed_tasks: f32,
@@ -70,6 +75,8 @@ pub struct App {
     recv: Receiver<Command>,
     job_sender: Sender<Job>,
     job_recv: Receiver<Job>,
+    mpv_sender: Sender<Event>,
+    mpv_recv: Receiver<Event>,
 }
 
 pub enum Command {
@@ -127,6 +134,7 @@ impl Default for App {
     fn default() -> Self {
         let (sender, recv) = channel();
         let (job_sender, job_recv) = channel();
+        let (mpv_sender, mpv_recv) = channel();
         Self {
             icons: HashMap::new(),
             file: BLANK.to_owned(), //refers to the index file (save file)
@@ -160,6 +168,7 @@ impl Default for App {
             general_settings: GeneralSettings::new(),
             ocr_settings: OcrSettings::new(),
             detection_settings: DetectionSettings::new(),
+            mpv_state: MpvState::new(),
             busy: true,
             total_tasks: 0.0,
             completed_tasks: 0.0,
@@ -168,6 +177,8 @@ impl Default for App {
             recv,
             job_sender,
             job_recv,
+            mpv_sender,
+            mpv_recv,
         }
     }
 }
@@ -255,6 +266,15 @@ impl epi::App for App {
             load_texture_id(frame, get_icon("play-line.png").as_path()).unwrap(),
         );
         self.icons.insert(
+            "pause-line",
+            load_texture_id(frame, get_icon("pause-line.png").as_path()).unwrap(),
+        );
+        self.icons.insert(
+            "stop-line",
+            load_texture_id(frame, get_icon("stop-line.png").as_path()).unwrap(),
+        );
+
+        self.icons.insert(
             "rewind-line",
             load_texture_id(frame, get_icon("rewind-line.png").as_path()).unwrap(),
         );
@@ -332,6 +352,7 @@ impl epi::App for App {
             general_settings,
             ocr_settings,
             detection_settings,
+            mpv_state,
             busy,
             completed_tasks,
             total_tasks,
@@ -340,6 +361,8 @@ impl epi::App for App {
             recv,
             job_sender,
             job_recv,
+            mpv_sender,
+            mpv_recv,
         } = self;
 
         // Examples of how to create different panels and windows.
@@ -1060,12 +1083,26 @@ impl epi::App for App {
                                                 }
                                                 ui.separator();
                                                 ui.vertical(|ui| {
-                                                    if ui.add(egui::ImageButton::new(*icons.get("play-line").unwrap(), (10.0, 10.0))).on_hover_text("Play Video").clicked() {
+                                                    ui.horizontal(|ui| {
                                                         let scene = instructional.videos[i].scenes[j].clone();
-                                                        std::thread::spawn(move || {
-                                                            play_scene(scene);
-                                                        });
-                                                    }
+                                                        let currently_playing = mpv_state.clone().path.map(|p| p == scene.file).unwrap_or(false);
+                                                        if !currently_playing {
+                                                          if ui.add(egui::ImageButton::new(*icons.get("play-line").unwrap(), (10.0, 10.0))).on_hover_text("Play Video").clicked() {
+                                                            let scene = instructional.videos[i].scenes[j].clone();
+                                                            std::thread::spawn(move || {
+                                                              play_scene(scene);
+                                                            });
+                                                            watch_mpv(mpv_state, mpv_sender);
+                                                          }
+                                                        } else {
+                                                          if ui.add(egui::ImageButton::new(*icons.get("pause-line").unwrap(), (10.0, 10.0))).on_hover_text("Pause Video").clicked() {
+                                                            let scene = instructional.videos[i].scenes[j].clone();
+                                                            std::thread::spawn(move || {
+                                                              mpv_pause();
+                                                            });
+                                                          }
+                                                        }
+                                                    });
                                                     if ui.add(egui::ImageButton::new(*icons.get("character-recognition-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scene title using OCR").clicked() {
                                                         let scene = &instructional.videos[i].scenes[j];
                                                         if let Some(text) = scene_text_with_settings(instructional.creator.to_string(), instructional.title.to_string(), scene, &general_settings, &ocr_settings) {
@@ -1114,6 +1151,8 @@ impl epi::App for App {
                     while let Ok(job) = job_recv.try_recv() {
                         jobs.push(job);
                     }
+
+                    update_mpv_state(mpv_state, mpv_recv);
 
                     if !commands.is_empty() {
                         commands.into_iter().for_each(|command| {
