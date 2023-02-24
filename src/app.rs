@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 use crate::DetectionSettings;
 use crate::GeneralSettings;
+use crate::MpvMsg;
 use crate::MpvState;
 use crate::all_scenes;
 use crate::app::egui::Vec2;
@@ -11,6 +12,7 @@ use crate::get_cached_creators;
 use crate::get_popular_creators;
 use crate::load_org;
 use crate::mpv_pause;
+use crate::mpv_stop;
 use crate::play_scene;
 use crate::save_org;
 use crate::save_md;
@@ -46,7 +48,6 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-use mpvipc::Event;
 static BLANK: &str = "";
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -75,8 +76,8 @@ pub struct App {
     recv: Receiver<Command>,
     job_sender: Sender<Job>,
     job_recv: Receiver<Job>,
-    mpv_sender: Sender<Event>,
-    mpv_recv: Receiver<Event>,
+    mpv_sender: Sender<MpvMsg>,
+    mpv_recv: Receiver<MpvMsg>,
 }
 
 pub enum Command {
@@ -717,6 +718,14 @@ impl epi::App for App {
                 ui.heading("Videos");
                 if ui.add(egui::ImageButton::new(*icons.get("add-line").unwrap(), (10.0, 10.0))).on_hover_text("Add video").clicked() {
                     add_video(&mut instructional.videos, last_selected_file);
+                    // Also add the first scene
+                    let v_index = instructional.videos.len() - 1;
+                    let s_index = 1;
+                    let start = 0;
+                    let end = video_duration(instructional.videos[v_index].file.to_string());
+                    let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[v_index].file.clone(), labels: vec![], start, end };
+                    sender.send(Command::AddScene{v_index, scene: scene.clone() }).expect("Failed to send AddScene command");
+                    sender.send(Command::UpdateThumbnail{v_index, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
                 }
             });
 
@@ -901,9 +910,9 @@ impl epi::App for App {
 
                                         if ui.add(egui::ImageButton::new(*icons.get("add-line").unwrap(), (10.0, 10.0))).on_hover_text("Add scene").clicked() {
                                             let s_index = instructional.videos[i].scenes.len() + 1;
-                                            let previous_end = if s_index > 1 { instructional.videos[i].scenes[s_index - 1].end } else { 0 };
+                                            let previous_end = if s_index >= 2 { instructional.videos[i].scenes[s_index - 2].end } else { 0 };
                                             let end = video_duration(instructional.videos[i].file.to_string());
-                                            let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[i].file.clone(), labels: vec![], start: previous_end, end: end };
+                                            let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[i].file.clone(), labels: vec![], start: previous_end, end };
                                             sender.send(Command::AddScene{v_index: i, scene: scene.clone() }).expect("Failed to send AddScene command");
                                             sender.send(Command::UpdateThumbnail{v_index: i, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
                                         }
@@ -1085,10 +1094,10 @@ impl epi::App for App {
                                                 ui.vertical(|ui| {
                                                     ui.horizontal(|ui| {
                                                         let scene = instructional.videos[i].scenes[j].clone();
-                                                        let currently_playing = mpv_state.clone().path.map(|p| p == scene.file).unwrap_or(false);
+                                                        let currently_playing = mpv_state.path.clone().map(|p| p == scene.file).unwrap_or(false);
                                                         if !currently_playing {
                                                           if ui.add(egui::ImageButton::new(*icons.get("play-line").unwrap(), (10.0, 10.0))).on_hover_text("Play Video").clicked() {
-                                                            let scene = instructional.videos[i].scenes[j].clone();
+                                                            mpv_stop(mpv_state);
                                                             std::thread::spawn(move || {
                                                               play_scene(scene);
                                                             });

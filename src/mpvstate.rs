@@ -23,6 +23,22 @@ impl MpvState {
     }
 }
 
+pub struct MpvMsg {
+    pub state: MpvState,
+}
+impl MpvMsg {
+    pub fn new() -> Self {
+        MpvMsg {
+            state: MpvState::new()
+        }
+    }
+    pub fn for_state(state: MpvState) -> Self {
+        MpvMsg {
+            state
+        }
+    }
+}
+
 pub fn mpv_pause() {
     let mut mpv = Mpv::connect("/tmp/mpv.sock");
     match &mut mpv {
@@ -44,49 +60,91 @@ pub fn mpv_play(path: String) {
     }
 }
 
-pub fn watch_mpv(state: &mut MpvState, sender: &mut Sender<Event>) {
+pub fn mpv_stop(state: &mut MpvState) {
+    let mut running = true;
+    let mut stopping = false;
+    println!("Stopping mpv.");
+    while running {
+        let mut mpv = Mpv::connect("/tmp/mpv.sock");
+        match &mut mpv {
+            Ok(m) => {
+                if !stopping {
+                    match m.stop() {
+                        _ => () //Just ignore
+                    }
+                    stopping = true
+                }
+            },
+            _ => { running = false; println!("Stopped.") },
+        }
+    }
+    state.listening = false;
+}
+
+
+pub fn watch_mpv(state: &mut MpvState, sender: &mut Sender<MpvMsg>) {
     if !state.listening {
         state.listening = true;
         let sender = sender.clone();
         std::thread::spawn(move || {
-            loop {
-                println!("Connecting to tmp.sock ...");
+            loop { 
+                println!("Connecting to mpv.");
                 let mut mpv = Mpv::connect("/tmp/mpv.sock");
                 match &mut mpv {
                     Ok(m) => {
+                        println!("Connected!");
+                        let mut new_state = get_mpv_state(m);
+                        println!("Initial path:{}", new_state.clone().path.unwrap_or("".to_string()));
+                        sender.send(MpvMsg::for_state(new_state.clone())).unwrap();
                         m.observe_property(1, "path").unwrap();
                         m.observe_property(2, "pause").unwrap();
-                        m.observe_property(3, "playback-time").unwrap();
+                        //        m.observe_property(3, "playback-time").unwrap();
                         m.observe_property(4, "duration").unwrap();
                         m.observe_property(5, "metadata").unwrap();
                         loop {
-                            let event = m.event_listen().unwrap();
-                            sender.send(event).unwrap();
+                            let event = m.event_listen();
+                            match event {
+                                Ok(e) => {
+                                    match e {
+                                        Event::PropertyChange { id: _, property } => {
+                                            match property {
+                                                Property::Pause(value) => new_state.pause = value,
+                                                Property::Path(Some(value)) => { new_state.path = Some(value.clone()); println!("Set path:{}", value) },
+                                                Property::Path(None) => { new_state.path = None; new_state.listening = false; println!("Reset path!") },
+                                                Property::PlaybackTime(Some(value)) => new_state.playback_time = value,
+                                                Property::PlaybackTime(None) => new_state.playback_time = 0.0,
+                                                Property::Duration(Some(value)) => new_state.duration = value,
+                                                Property::Duration(None) => new_state.duration = 0.0,
+                                                _ => (),
+                                            }
+                                            sender.send(MpvMsg::for_state(new_state.clone())).unwrap();
+                                        },
+                                        _ => (),
+                                    }
+                                },
+                                _ =>  { sender.send(MpvMsg::new()).unwrap(); return },
+                            }
                         }
                     },
-                    _ => (),
+                    _ =>  { println!("Connection failed!"); sender.send(MpvMsg::new()).unwrap(); },
                 }
             }
         });
     }
 }
 
-pub fn update_mpv_state(state: &mut MpvState, receiver: &mut Receiver<Event>) {
-    while let Ok(event) = receiver.try_recv() {
-        match event {
-            Event::PropertyChange { id: _, property } => match property {
-                Property::Pause(value) => state.pause = value,
-                Property::Path(Some(value)) => state.path = Some(value),
-                Property::Path(None) => state.path = None,
-
-                Property::PlaybackTime(Some(value)) => state.playback_time = value,
-                Property::PlaybackTime(None) => state.playback_time = 0.0,
-
-                Property::Duration(Some(value)) => state.duration = value,
-                Property::Duration(None) => state.duration = 0.0,
-                _ => (),
-            },
-            _ => (),
-        }
+pub fn update_mpv_state(state: &mut MpvState, receiver: &mut Receiver<MpvMsg>) {
+    while let Ok(msg) = receiver.try_recv() {
+        let new_state = msg.state;
+        state.listening = new_state.listening; 
+        state.pause = new_state.pause; 
+        state.path = new_state.path; 
+        state.playback_time = new_state.playback_time; 
+        state.duration = new_state.duration; 
+        println!("State path:{}", state.path.as_ref().unwrap_or(&"none".to_string()));
     }
+}
+
+fn get_mpv_state(mpv: &mut Mpv) -> MpvState {
+    return MpvState { listening: true, pause: mpv.get_property("pause").unwrap_or(false), path: mpv.get_property("path").ok(), playback_time: mpv.get_property("playback_time").unwrap_or(0.0), duration: mpv.get_property("duration").unwrap_or(0.0) };
 }
