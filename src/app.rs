@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+
 use crate::DetectionSettings;
 use crate::GeneralSettings;
 use crate::MpvMsg;
@@ -274,7 +275,14 @@ impl epi::App for App {
             "stop-line",
             load_texture_id(frame, get_icon("stop-line.png").as_path()).unwrap(),
         );
-
+        self.icons.insert(
+            "scissors-line",
+            load_texture_id(frame, get_icon("scissors-line.png").as_path()).unwrap(),
+        );
+        self.icons.insert(
+            "scissors-cut-line",
+            load_texture_id(frame, get_icon("scissors-cut-line.png").as_path()).unwrap(),
+        );
         self.icons.insert(
             "rewind-line",
             load_texture_id(frame, get_icon("rewind-line.png").as_path()).unwrap(),
@@ -962,7 +970,7 @@ impl epi::App for App {
                                         let drop = drop_target(ui, true, |ui| {
                                             ui.horizontal(|ui| {
                                             let scene_title_id = Id::new("scene_title").with(i).with(j);
-                                            if ui.add(egui::ImageButton::new(*icons.get("split-cells-vertical").unwrap(), (10.0, 10.0))).on_hover_text("Split scene").clicked() {
+                                            if ui.add(egui::ImageButton::new(*icons.get("scissors-line").unwrap(), (10.0, 10.0))).on_hover_text("Split scene").clicked() {
                                                 let scene_to_add = instructional.videos[i].scenes[j].clone();
                                                 instructional.videos[i].scenes.insert(j, scene_to_add);
                                                 if scene_images.len() > i && scene_images[i].len() > j {
@@ -1097,7 +1105,7 @@ impl epi::App for App {
                                                         let currently_playing = mpv_state.path.clone().map(|p| p == scene.file).unwrap_or(false);
                                                         if !currently_playing {
                                                           if ui.add(egui::ImageButton::new(*icons.get("play-line").unwrap(), (10.0, 10.0))).on_hover_text("Play Video").clicked() {
-                                                            mpv_stop(mpv_state);
+                                                           mpv_stop(mpv_state);
                                                             std::thread::spawn(move || {
                                                               play_scene(scene);
                                                             });
@@ -1110,6 +1118,46 @@ impl epi::App for App {
                                                               mpv_pause();
                                                             });
                                                           }
+                                                        }
+                                                        if mpv_state.running && mpv_state.playback_time > 0.0 && currently_playing {
+                                                            if ui.add(egui::ImageButton::new(*icons.get("rewind-mini-line").unwrap(), (10.0, 10.0))).on_hover_text("Set scene start").clicked() {
+                                                                let mut scene_to_update = instructional.videos[i].scenes[j].clone();
+                                                                scene_to_update.start = mpv_state.playback_time as usize;
+                                                                instructional.videos[i].scenes[j]=scene_to_update;
+
+                                                                if j > 0 {
+                                                                   let mut prev_scene_to_update = instructional.videos[i].scenes[j - 1].clone();
+                                                                   prev_scene_to_update.end = mpv_state.playback_time as usize;
+                                                                   instructional.videos[i].scenes[j - 1]=prev_scene_to_update;
+                                                                }
+                                                            }
+                                                            if ui.add(egui::ImageButton::new(*icons.get("scissors-line").unwrap(), (10.0, 10.0))).on_hover_text("Split scene at point").clicked() {
+
+                                                                let mut scene_to_update = instructional.videos[i].scenes[j].clone();
+                                                                let mut scene_to_add = instructional.videos[i].scenes[j].clone();
+
+                                                                scene_to_update.end = mpv_state.playback_time as usize;
+                                                                instructional.videos[i].scenes[j]=scene_to_update;
+
+                                                                scene_to_add.start = mpv_state.playback_time as usize;
+                                                                instructional.videos[i].scenes.insert(j + 1, scene_to_add);
+
+                                                                if scene_images.len() > i && scene_images[i].len() > j {
+                                                                    let image_to_add = scene_images[i][j].clone();
+                                                                    scene_images[i].insert(j, image_to_add);
+                                                                }
+                                                            }
+                                                            if ui.add(egui::ImageButton::new(*icons.get("speed-mini-fill").unwrap(), (10.0, 10.0))).on_hover_text("Set scene end").clicked() {
+                                                                let mut scene_to_update = instructional.videos[i].scenes[j].clone();
+                                                                scene_to_update.end = mpv_state.playback_time as usize;
+                                                                instructional.videos[i].scenes[j]=scene_to_update;
+
+                                                                if j + 1 < instructional.videos[i].scenes.len() {
+                                                                   let mut next_scene_to_update = instructional.videos[i].scenes[j + 1].clone();
+                                                                   next_scene_to_update.start = mpv_state.playback_time as usize;
+                                                                   instructional.videos[i].scenes[j + 1]=next_scene_to_update;
+                                                                }
+                                                            }
                                                         }
                                                     });
                                                     if ui.add(egui::ImageButton::new(*icons.get("character-recognition-line").unwrap(), (10.0, 10.0))).on_hover_text("Detect scene title using OCR").clicked() {

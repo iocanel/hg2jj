@@ -29,7 +29,8 @@ reqwest = { version = "0.11", features = ["blocking", "cookies"] }
 scraper = "0.12.0"
 
 # OCR
-opencv = {version = "0.62.0", features = ["clang-runtime"] }
+opencv = {version = "0.78.2" }
+#opencv = {version = "0.78.2", features = ["clang-runtime"] }
 spellcheck = "0.1.2"
 tesseract = "0.10.1"
 
