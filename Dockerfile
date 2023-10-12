@@ -1,4 +1,4 @@
-FROM rust:1.62 as builder
+FROM rust:1.73 as builder
 RUN apt-get update && apt-get install -y libopencv-dev ffmpeg tesseract-ocr
 RUN apt-get install -y gdk+3.0
 RUN apt-get install -y libatk1.0-dev
@@ -21,7 +21,7 @@ WORKDIR /usr/src/myapp
 COPY . .
 
 RUN cargo fetch
-RUN cargo build --release
+RUN cargo build -v --release --offline
 
 # Create intall directory
 RUN mkdir -p /opt/hg2jj/bin
