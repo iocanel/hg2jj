@@ -17,7 +17,7 @@ itertools = "0.10.3"
 image = "0.20.0"
 ffprobe = "0.3.0"
 ffmpeg = "0.3.0"
-ffmpeg-sys = { version = "4", features = ["build"] }
+ffmpeg-sys = { version = "4.3.3", features = ["build"] }
 mpvipc = "1.2.2"
 env_logger = "0.9.0"
 serde = { version = "1", features = ["derive"] }
