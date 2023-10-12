@@ -61,14 +61,16 @@ pub struct Scene {
 #[derive(Debug, Clone, Copy)]
 pub struct DetectionSettings {
     threshold: f32,
-    minimum_length: i32
+    minimum_length: i32,
+    offset: usize,
 }
 
 impl DetectionSettings {
     fn new() -> Self {
         DetectionSettings {
             threshold: 0.2,
-            minimum_length: 10
+            minimum_length: 10,
+            offset: 1
         }
     }
 }

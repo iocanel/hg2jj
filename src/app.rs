@@ -474,6 +474,24 @@ impl epi::App for App {
                         };
                     }
 
+                    if ui.button("Fix timestamps").clicked() {
+                            for i in 0..instructional.videos.len() {
+                                for j in 0..instructional.videos[i].scenes.len() {
+                                let next = j + 1;
+                                if next < instructional.videos[i].scenes.len() {
+                                    let current_scene_end = instructional.videos[i].scenes[j].end;
+                                    let next_scene_start = instructional.videos[i].scenes[j + 1].start;
+                                    let diff = if next_scene_start > current_scene_end { next_scene_start - current_scene_end } else { 0 };
+                                    if diff > 10 {
+                                      let current_scene_title = &instructional.videos[i].scenes[j].title;
+                                      println!("Setting video: {} scene: {} - '{}': end timestamp: {} -> {}. Diff: {}.", i, (j + 1), current_scene_title , current_scene_end, next_scene_start, diff);
+                                      instructional.videos[i].scenes[j].end = next_scene_start;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if ui.button("Export as markdown").clicked() {
                         let dir = parent_dir(&file).unwrap_or_else(|| {
                             parent_dir(last_selected_file).unwrap_or("/".to_string())
@@ -812,6 +830,7 @@ impl epi::App for App {
                     ui.horizontal(|ui| {
                         ui.add(egui::Slider::new(&mut detection_settings.threshold, 0.0..=1.0).text("Scene detection threshold")).on_hover_text("What percentage of changes pixels suggestes a scene change?");
                         ui.add(egui::Slider::new(&mut detection_settings.minimum_length, 0..=3600).text("Minimum scene length")).on_hover_text("What is the minimum expected scene length? Shorter scenes will be ignored!");
+                        ui.add(egui::Slider::new(&mut detection_settings.offset, 0..=10).text("Scene detection offset")).on_hover_text("What offest in seconds to add to the detected time?");
                     });
                 });
 
@@ -924,6 +943,17 @@ impl epi::App for App {
                                             sender.send(Command::AddScene{v_index: i, scene: scene.clone() }).expect("Failed to send AddScene command");
                                             sender.send(Command::UpdateThumbnail{v_index: i, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
                                         }
+                                        if i > 1 && ui.add(egui::ImageButton::new(*icons.get("arrow-up").unwrap(), (10.0, 10.0))).on_hover_text("Shift scene up").clicked() {
+                                                let swap = instructional.videos[i].clone();
+                                                instructional.videos[i] = instructional.videos[i - 1].clone();
+                                                instructional.videos[i - 1] = swap;
+                                        }
+                                        if i < instructional.videos.len() -1 && ui.add(egui::ImageButton::new(*icons.get("arrow-down").unwrap(), (10.0, 10.0))).on_hover_text("Shift scene down").clicked() {
+                                                let swap = instructional.videos[i].clone();
+                                                instructional.videos[i] = instructional.videos[i + 1].clone();
+                                                instructional.videos[i + 1] = swap;
+                                        }
+
                                     });
 
                                     // Global video actions
@@ -1286,7 +1316,7 @@ impl epi::App for App {
                                                 })
                                                 .filter(|(t, n)| (*t as i32 - *n as i32).abs() > detection_settings.minimum_length) // filter very short scenes
                                                 .enumerate() // (i, (t, nt))
-                                                .map(| (si, (t, nt)) | (si, Scene {index: si, title: format!("Scene {}: {} - {}", si+1, t, nt), labels: vec![], file: file.clone(), start: t, end: nt}))
+                                                .map(| (si, (t, nt)) | (si, Scene {index: si, title: format!("Scene {}: {} - {}", si+1, t, nt), labels: vec![], file: file.clone(), start: t + detection_settings.offset, end: if nt != 0 { nt + detection_settings.offset } else { nt }}))
                                                 .for_each(|(s_index, scene)| {
                                                     sender.send(Command::AddScene{v_index, scene: scene.to_owned()}).expect("Failed to send AddScene command");
                                                     sender.send(Command::UpdateThumbnail{v_index, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
