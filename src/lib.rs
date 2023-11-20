@@ -416,18 +416,15 @@ pub fn scene_to_image(creator: String, title: String, scene: &Scene) -> Option<S
         return Some(img_path_str.to_string())
     }
     println!("Scene image: {} does not exist. Creating ...", img_path_str);
-    let cmd = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
+    let cmd = if cfg!(target_os = "windows") { "mpv.exe" } else { "mpv" };
     let out = std::process::Command::new(cmd)
         .args([
-            "-i",
-            scene.file.as_str(),
-            "-ss",
-            scene.start.to_string().as_str(),
-            "-dpi",
-            "300",
-            "-vframes",
-            "1",
-            img_path_str
+            "--start=".to_owned() +  scene.start.to_string().as_str(),
+            "--frames=1".to_string(),
+            "--vo=image".to_string(),
+            "-o=".to_owned() + img_path_str.to_string().as_str(),
+            "--screenshot-format=png".to_string(),
+            scene.file.to_string(),
         ])
         .stdin(Stdio::null())
         .output()
