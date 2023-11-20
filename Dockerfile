@@ -22,9 +22,11 @@ RUN apt-get install -y yasm
 RUN rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/myapp
-COPY . .
 
-RUN cargo fetch
+COPY Cargo.* /usr/src/myapp/
+RUN mkdir src && echo "// dummy file" > src/lib.rs && cargo fetch
+COPY assets /usr/src/myapp/
+COPY src/* /usr/src/myapp/src/
 RUN cargo build -v --release --offline
 
 # Create intall directory
