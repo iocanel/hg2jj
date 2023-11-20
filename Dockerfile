@@ -1,5 +1,9 @@
 FROM rust:1.73 as builder
-RUN apt-get update && apt-get install -y libopencv-dev ffmpeg tesseract-ocr
+
+RUN apt-get update 
+RUN apt-get install -y ffmpeg tesseract-ocr mpv
+RUN apt-get install -y libasound2 pulseaudio pavucontrol
+RUN apt-get install -y libopencv-dev 
 RUN apt-get install -y gdk+3.0
 RUN apt-get install -y libatk1.0-dev
 RUN apt-get install -y libpango-1.0-0
