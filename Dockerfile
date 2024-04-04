@@ -24,7 +24,12 @@ RUN rm -rf /var/lib/apt/lists/*
 WORKDIR /usr/src/myapp
 
 COPY Cargo.* /usr/src/myapp/
-RUN mkdir src && echo "// dummy file" > src/lib.rs && cargo fetch
+
+# Build a hello world app to cache dependencies
+RUN mkdir /usr/src/myapp/src && echo "fn main() {println!(\"cache my layers\")}" > /usr/src/myapp/src/lib.rs
+RUN cargo build -v --release
+RUN rm -rf /usr/src/myapp/src
+
 COPY assets /usr/src/myapp/
 COPY src/* /usr/src/myapp/src/
 RUN cargo build -v --release --offline
