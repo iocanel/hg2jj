@@ -15,7 +15,7 @@ xhost local:root
 docker run \
          -v ~/.Xauthority:/home/$USERNAME/.Xauthority \
          -v ~/:/home/$USERNAME \
-    	   -v /mnt/media:/mnt/media \
+    	   -v /mnt/bjj:/mnt/bjj \
     	   -v /mnt/downloads:/mnt/downloads\
          -v ~/.cache/hg2jj:/opt/hg2jj/.cache \
     	   -v /tmp/.X11-unix:/tmp/.X11-unix \
