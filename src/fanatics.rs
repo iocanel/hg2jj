@@ -138,7 +138,7 @@ pub fn extract_timestamps(body: String) -> Vec<Vec<Scene>> {
     // Zip titles and durations into a tuple: (title, (start, end)) 
     let all_scenes = titles.clone().into_iter().zip(durations.clone().into_iter())
         .enumerate() 
-        .map(|(index, (title, (start, end)))| Scene{index, title, start, end, labels: vec![], file: "".to_string()})
+        .map(|(index, (title, (start, end)))| Scene{index, title, text: "".to_string(), start, end, labels: vec![], file: "".to_string()})
         .collect::<Vec<Scene>>();
 
     // Split the vector into a vector of vectors each time `end` is 0.
@@ -162,7 +162,7 @@ pub fn extract_timestamps(body: String) -> Vec<Vec<Scene>> {
         }
         last_start = s.start;
         let clean_title = clean_title(s.title);
-        result[v as usize].push(Scene{index, title: clean_title, start: s.start, end: s.end, labels: s.labels, file: s.file});
+        result[v as usize].push(Scene{index, title: clean_title, text: "".to_string(), start: s.start, end: s.end, labels: s.labels, file: s.file});
         println!("{} - {}: {}" , result[v as usize][index].start, result[v as usize][index].end, result[v as usize][index].title);
         index+=1;
     });

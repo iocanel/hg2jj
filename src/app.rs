@@ -725,7 +725,7 @@ impl epi::App for App {
                         .filter(|s| !s.is_empty())
                         .enumerate()
                         .map(|(i, s)| (i, s, if instructional.videos.len() > i { instructional.videos[i].file.clone() } else { format!("Volume{}.mp4", i + 1) }))
-                        .map(|(i, s, file) | Video {index: i + 1, file: file.clone(), scenes: s.iter().map(|s| Scene { index: s.index, title: s.title.clone(), start: s.start, end: s.end, file: file.clone(), labels: s.labels.to_vec()}).collect(), duration: 0})
+                        .map(|(i, s, file) | Video {index: i + 1, file: file.clone(), scenes: s.iter().map(|s| Scene { index: s.index, title: s.title.clone(), start: s.start, end: s.end, file: file.clone(), text: "".to_string(), labels: s.labels.to_vec()}).collect(), duration: 0})
                         .collect();
                 }
             });
@@ -749,7 +749,7 @@ impl epi::App for App {
                     let s_index = 1;
                     let start = 0;
                     let end = video_duration(instructional.videos[v_index].file.to_string());
-                    let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[v_index].file.clone(), labels: vec![], start, end };
+                    let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[v_index].file.clone(), text: "".to_string(), labels: vec![], start, end };
                     sender.send(Command::AddScene{v_index, scene: scene.clone() }).expect("Failed to send AddScene command");
                     sender.send(Command::UpdateThumbnail{v_index, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
                 }
@@ -939,7 +939,7 @@ impl epi::App for App {
                                             let s_index = instructional.videos[i].scenes.len() + 1;
                                             let previous_end = if s_index >= 2 { instructional.videos[i].scenes[s_index - 2].end } else { 0 };
                                             let end = video_duration(instructional.videos[i].file.to_string());
-                                            let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[i].file.clone(), labels: vec![], start: previous_end, end };
+                                            let scene = Scene { index: s_index, title: "".to_string(), file: instructional.videos[i].file.clone(), text: "".to_string(), labels: vec![], start: previous_end, end };
                                             sender.send(Command::AddScene{v_index: i, scene: scene.clone() }).expect("Failed to send AddScene command");
                                             sender.send(Command::UpdateThumbnail{v_index: i, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");
                                         }
@@ -1316,7 +1316,7 @@ impl epi::App for App {
                                                 })
                                                 .filter(|(t, n)| (*t as i32 - *n as i32).abs() > detection_settings.minimum_length) // filter very short scenes
                                                 .enumerate() // (i, (t, nt))
-                                                .map(| (si, (t, nt)) | (si, Scene {index: si, title: format!("Scene {}: {} - {}", si+1, t, nt), labels: vec![], file: file.clone(), start: t + detection_settings.offset, end: if nt != 0 { nt + detection_settings.offset } else { nt }}))
+                                                .map(| (si, (t, nt)) | (si, Scene {index: si, title: format!("Scene {}: {} - {}", si+1, t, nt), text: "".to_string(), labels: vec![], file: file.clone(), start: t + detection_settings.offset, end: if nt != 0 { nt + detection_settings.offset } else { nt }}))
                                                 .for_each(|(s_index, scene)| {
                                                     sender.send(Command::AddScene{v_index, scene: scene.to_owned()}).expect("Failed to send AddScene command");
                                                     sender.send(Command::UpdateThumbnail{v_index, s_index, image: create_scene_image(&frame, instructional.creator.to_string(), instructional.title.to_string(), &scene)}).expect("Failed to send UpdateThumbnail command!");

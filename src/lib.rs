@@ -53,6 +53,7 @@ pub struct Scene {
     index: usize,
     title: String,
     file: String,
+    text: String,
     labels: Vec<String>,
     start: usize,
     end: usize
@@ -186,10 +187,13 @@ pub fn parse_org(content: String) -> Instructional {
     let s_title_re = Regex::new(r"^\*+ ([a-zA-Z0-9'`\.,_ /&:-]+) (:[a-zA-Z0-9_-]+:)$").unwrap();
     let start_timestamp_re = Regex::new(r":START_TIMESTAMP:[ ]+([0-9]+)").unwrap();
     let end_timestamp_re = Regex::new(r":END_TIMESTAMP:[ ]*([0-9]+)").unwrap();
+    let properties_re = Regex::new(r":PROPERTIES:").unwrap();
     let end_re = Regex::new(r":END:").unwrap();
     let file_re = Regex::new(r":FILE_OR_URL:(.+)$").unwrap();
 
     let duration_re = Regex::new(r":DURATION:[ ]*([0-9]+)").unwrap();
+    let non_text_re = Regex::new(r"^(\s*[\*:#])").unwrap();
+    let video_link_regex = Regex::new(r"\[\[(file:|http:|https:|mpv:)?([^\]]+\.(mp4|avi|mov))\]\[?[^\]]*\]?\]?").unwrap();
 
     let mut creator=String::from("unknown");
     let mut title=String::from("unknown");
@@ -198,71 +202,116 @@ pub fn parse_org(content: String) -> Instructional {
     //Scene 
     let mut index: usize = 1;
     let mut s_title = String::new();
+    let mut current_s_title = String::new();
     let mut file = String::new();
+    let mut text = String::new();
     let mut labels: Vec<String> = Vec::new();
     let mut start: Option<usize> = None;
     let mut end: Option<usize> = None;
+    let mut in_properties: bool = false;
+    let mut after_properties: bool = false;
+    let mut line_number: usize = 0;
 
-    for line in lines {
+    let mut should_push_scene = false;
+
+    for line in &lines {
+        line_number += 1;
+        should_push_scene = line_number == lines.len();
+
         if creator_re.is_match(&line) {
             let cap = creator_re.captures(&line).expect("Failed to match regex!");
             creator = cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre creator!");
         }
 
-        if title_re.is_match(&line) {
+        else if title_re.is_match(&line) {
             let cap = title_re.captures(&line).expect("Failed to match regex!");
             title = cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre title!");
         }
 
-        if url_re.is_match(&line) {
+        else if url_re.is_match(&line) {
             let cap = url_re.captures(&line).expect("Failed to match regex!");
             url = cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre url!");
         }
 
-        if volume_re.is_match(&line) {
+        else if volume_re.is_match(&line) {
             start = None;
             end = None;
             index = 0;
             s_title = String::new();
+            text = String::new();
             file = String::new();
         }
 
-        if s_title_re.is_match(&line) {
+        else if s_title_re.is_match(&line) {
             let cap = s_title_re.captures(&line).expect("Failed to match regex!");
-            s_title = clean_title(cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre title!"));
+            s_title = current_s_title.clone();
+            current_s_title = clean_title(cap.get(1).map(|m| m.as_str().to_string()).expect("Failed to caputre title!"));
+            should_push_scene = !file.is_empty();
         }
-        if start_timestamp_re.is_match(&line) {
+
+        else if start_timestamp_re.is_match(&line) {
             let cap = start_timestamp_re.captures(&line).expect("Failed to match regex!");
             start = cap.get(1).map(|m| m.as_str().parse::<usize>().expect("Failed to parse start timestamp!"));
         }
-        if end_timestamp_re.is_match(&line) {
+
+        else if end_timestamp_re.is_match(&line) {
             let cap = end_timestamp_re.captures(&line).expect("Failed to match regex!");
             end = cap.get(1).map(|m| m.as_str().parse::<usize>().expect("Failed to parse end timestamp!"));
         }
-        if file_re.is_match(&line) {
+
+        else if file_re.is_match(&line) {
             let cap = file_re.captures(&line).expect("Failed to match regex!");
             file = cap.get(1)
                 .map(|m| m.as_str().trim().to_string())
                 .expect("Failed to capture end file!");
         }
 
-        //When we reach properties end we push the scene
-        if start.is_some() && end.is_some() && !s_title.is_empty() && !file.is_empty() {
+        else if properties_re.is_match(&line) {
+            in_properties = true;
+            after_properties = false;
+        }
+
+        else if end_re.is_match(&line) {
+            in_properties = false;
+            after_properties = true;
+        }
+
+        else if in_properties {
+            labels.push(line.to_string());
+        }
+
+        else if video_link_regex.is_match(&line) {
+            if let Some(caps) = video_link_regex.captures(line) {
+                file = caps.get(2).map(|m| m.as_str().to_string()).expect("Failed to capture video url from org-link.");
+            }
+        }
+
+        else {
+            text.push_str(&line);
+            text.push_str("\n");
+        }
+
+        //When we reach next title or end of file, we create a new scene.
+        if should_push_scene {
                 scenes.push(Scene {
                     index,
-                    title: s_title,
+                    title: if s_title.is_empty() { current_s_title.clone() } else { s_title.clone() },
                     labels,
                     file,
+                    text: text.trim().to_string(),
                     start: start.unwrap_or(0),
                     end: end.unwrap_or(0)});
 
-                s_title = String::new();
-                file = String::new();
                 index += 1;
+                in_properties = false;
+                after_properties = false;
+                s_title = current_s_title.clone();
+                file = String::new();
                 file = String::new();
                 labels = vec![];
                 start = None;
                 end = None;
+                text = String::new();
         }
     }
 
@@ -323,6 +372,7 @@ pub fn save_org(instructional: &mut Instructional, out: File, absolute: bool) {
             out.write_all(format!(":START_TIMESTAMP: {}\n", s.start).as_bytes()).expect("Unable to write scene start timestamp!");
             out.write_all(format!(":END_TIMESTAMP: {}\n", s.end).as_bytes()).expect("Unable to write scene end timestamp!");
             out.write_all(":END:\n".as_bytes()).expect("Unable to write scene properties end!");
+            out.write_all(format!("{}\n", s.text).as_bytes()).expect("Unable to write scene text!");
             out.write_all("\n".as_bytes()).expect("Unable to write separator line!");
         });
         out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
@@ -341,6 +391,7 @@ pub fn save_md(instructional: &mut Instructional, out: File) {
             out.write_all(format!("## {}\n", clean_title(s.title.to_string())).as_bytes()).expect("Unable to write scene title!");
             out.write_all(format!("![{}]({})\n", s.title, file_name).as_bytes()).expect("Unable to write scene file or url!");
             out.write_all("\n".as_bytes()).expect("Unable to write separator line!");
+            out.write_all(format!("{}\n", s.text).as_bytes()).expect("Unable to write scene text!");
         });
         out.write_all("\n".as_bytes()).expect("Unable to write scene properties end!");
     });
@@ -451,6 +502,7 @@ pub fn split_scene(index: usize, s: Scene) -> Option<Video>  {
    let cmd = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
     let extension = &s.file.split(".").last().unwrap_or("mp4");
     let path = Path::new(&s.file);
+    let text = s.text.clone();
     let file = path.parent().unwrap().join(format!("{:03}. {}.{}", index, &s.title, extension).to_string()).to_str().unwrap().to_string();
     let mut args: Vec<String> = vec![
                 "-i",
@@ -469,7 +521,7 @@ pub fn split_scene(index: usize, s: Scene) -> Option<Video>  {
                 .output()
                 .unwrap();
 
-           return Some(Video {index, file: file.to_string(), duration: 0, scenes: vec![Scene {index: 1, title: s.title.to_string(), file: file.to_string(), start: 0, end: 0, labels: vec![] }]});
+           return Some(Video {index, file: file.to_string(), duration: 0, scenes: vec![Scene {index: 1, title: s.title.to_string(), file: file.to_string(), text, start: 0, end: 0, labels: vec![] }]});
 }
 
 pub fn play_scene(scene: Scene) {
@@ -728,8 +780,56 @@ pub fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn test_parse_org() {
+    fn test_should_parse_single_entry_org() {
+        let mut content = String::from("
+#+creator: iocanel
+#+title: my test
+
+*** Scene 1 :video:
+:PROPERTIES::
+:FILE_OR_URL: vol1.mp4
+:START_TIMESTAMP: 0
+:END_TIMESTAMP: 100
+:END:
+
+Random comments
+");
+        let i = parse_org(content);
+        assert_eq!("iocanel", i.creator);
+        assert_eq!("my test", i.title);
+        assert_eq!(1, i.videos.len());
+        assert_eq!(1, i.videos[0].scenes.len());
+        assert_eq!("Scene 1", i.videos[0].scenes[0].title);
+        assert_eq!("vol1.mp4", i.videos[0].scenes[0].file);
+        assert_eq!("Random comments", i.videos[0].scenes[0].text);
+    }
+
+    #[test]
+    fn test_should_single_entry_proples_org() {
+        let mut content = String::from("
+#+creator: iocanel
+#+title: my test
+
+*** Scene 1 :video:
+[[vol1.mp4][Some linked video]]
+
+Random comments
+");
+        let i = parse_org(content);
+        assert_eq!("iocanel", i.creator);
+        assert_eq!("my test", i.title);
+        assert_eq!(1, i.videos.len());
+        assert_eq!(1, i.videos[0].scenes.len());
+        assert_eq!("Scene 1", i.videos[0].scenes[0].title);
+        assert_eq!("vol1.mp4", i.videos[0].scenes[0].file);
+        assert_eq!("Random comments", i.videos[0].scenes[0].text);
+    }
+
+
+    #[test]
+    fn should_parse_multi_entry_org() {
         let mut content = String::from("
 #+creator: iocanel
 #+title: my test
@@ -743,12 +843,47 @@ mod tests {
 
 Random comments
 
-* Scene 2 :video:
+*** Scene 2 :video:
 :PROPERTIES:
 :FILE_OR_URL: vol1.mp4
 :START_TIMESTAMP: 100
 :END_TIMESTAMP: 200
 :END:
+
+More random comments for scene 2
+And another line
+");
+        let i = parse_org(content);
+        assert_eq!("iocanel", i.creator);
+        assert_eq!("my test", i.title);
+        assert_eq!(1, i.videos.len());
+        assert_eq!(2, i.videos[0].scenes.len());
+        assert_eq!("Scene 1", i.videos[0].scenes[0].title);
+        assert_eq!("Random comments", i.videos[0].scenes[0].text);
+        assert_eq!("vol1.mp4", i.videos[0].scenes[0].file);
+        assert_eq!(0, i.videos[0].scenes[0].start);
+        assert_eq!(100, i.videos[0].scenes[0].end);
+        assert_eq!("Scene 2", i.videos[0].scenes[1].title);
+        assert_eq!("More random comments for scene 2\nAnd another line", i.videos[0].scenes[1].text);
+        assert_eq!("vol1.mp4", i.videos[0].scenes[1].file);
+        assert_eq!(100, i.videos[0].scenes[1].start);
+        assert_eq!(200, i.videos[0].scenes[1].end);
+    }
+
+    #[test]
+    fn test_should_parse_multi_entry_proples_org() {
+        let mut content = String::from("
+#+creator: iocanel
+#+title: my test
+
+*** Scene 1 :video:
+[[vol1.mp4][Some linked video]]
+Here's a comment
+
+*** Scene 2 :video:
+[[vol1.mp4][Some other linked video]]
+Here's another comment
+And another
 ");
         let i = parse_org(content);
         assert_eq!("iocanel", i.creator);
@@ -757,14 +892,40 @@ Random comments
         assert_eq!(2, i.videos[0].scenes.len());
         assert_eq!("Scene 1", i.videos[0].scenes[0].title);
         assert_eq!("vol1.mp4", i.videos[0].scenes[0].file);
-        assert_eq!(0, i.videos[0].scenes[0].start);
-        assert_eq!(100, i.videos[0].scenes[0].end);
+        assert_eq!("Here's a comment", i.videos[0].scenes[0].text);
         assert_eq!("Scene 2", i.videos[0].scenes[1].title);
         assert_eq!("vol1.mp4", i.videos[0].scenes[1].file);
-        assert_eq!(100, i.videos[0].scenes[1].start);
-        assert_eq!(200, i.videos[0].scenes[1].end);
+        assert_eq!("Here's another comment\nAnd another", i.videos[0].scenes[1].text);
     }
 
+    #[test]
+    fn test_should_parse_multi_vid_proples_org() {
+        let mut content = String::from("
+#+creator: iocanel
+#+title: my test
+
+*** Scene 1 :video:
+[[vol1.mp4][Some linked video]]
+Here's a comment
+
+*** Scene 2 :video:
+[[vol2.mp4][Some other linked video]]
+Here's another comment
+And another
+");
+        let i = parse_org(content);
+        assert_eq!("iocanel", i.creator);
+        assert_eq!("my test", i.title);
+        assert_eq!(2, i.videos.len());
+        assert_eq!(1, i.videos[0].scenes.len());
+        assert_eq!("Scene 1", i.videos[0].scenes[0].title);
+        assert_eq!("vol1.mp4", i.videos[0].scenes[0].file);
+        assert_eq!("Here's a comment" , i.videos[0].scenes[0].text);
+        assert_eq!(1, i.videos[1].scenes.len());
+        assert_eq!("Scene 2", i.videos[1].scenes[0].title);
+        assert_eq!("vol2.mp4", i.videos[1].scenes[0].file);
+        assert_eq!("Here's another comment\nAnd another", i.videos[1].scenes[0].text);
+    }
 
     #[test]
     fn test_time_to_seconds() {
