@@ -32,6 +32,7 @@ RUN rm -rf /usr/src/myapp/src
 
 COPY assets /usr/src/myapp/
 COPY src/* /usr/src/myapp/src/
+RUN cargo test -v --release --offline
 RUN cargo build -v --release --offline
 
 # Create intall directory
